@@ -1,0 +1,13 @@
+runtime: python27
+api_version: 1
+threadsafe: true
+automatic_scaling:
+  max_idle_instances: 2 
+  
+handlers:
+
+- url: /_ah/task/.*
+  script: taskutils.app
+
+- url: /.*
+  script: main.app

@@ -1,0 +1,14 @@
+<html>
+  <head>
+    <title>Report{% if keystr %} for {{keystr}}{% endif %}</title>
+  </head>
+  <body>
+  	<h3><a href="/">&lt; experiments</a></h3>
+  {% if keystr %}
+  	<h1>Report for {{keystr}}</h1>
+<pre>{{objjson|safe}}</pre>
+  {% else %}
+    <h1>No result</h1>
+  {% endif %}
+  </body>
+</html>

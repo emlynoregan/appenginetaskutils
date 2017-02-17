@@ -1,0 +1,7 @@
+queue:
+- name: default
+  rate: 100/s
+- name: background
+  target: background
+  rate: 100/s
+  

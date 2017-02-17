@@ -1,0 +1,16 @@
+<html>
+  <head>
+    <title>Experiments</title>
+  </head>
+  <body>
+  	<h1>Experiments</h1>
+  	<form method="POST">
+  	{% for index, ex in experiments %}
+	  	<p>
+	  	<button name="run" value="{{index}}">{{ex[0]}}</button>
+<!-- 	  	<a href="report?key={ex[1]().urlsafe()}}">{{ex[0]}}</a>  -->
+	  	</p>
+  	{% endfor %}
+  	</form>
+  </body>
+</html>
