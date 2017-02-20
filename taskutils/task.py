@@ -8,9 +8,9 @@ import flask
 import logging
 import functools
 
-_DEFAULT_FLASK_URL = "/_ah/task/<name>"
+_DEFAULT_FLASK_URL = "/_ah/task/<fmodule>/<ffunction>"
 _DEFAULT_WEBAPP_URL = "/_ah/task/(.*)"
-_DEFAULT_ENQUEUE_URL = "/_ah/task/%s"
+_DEFAULT_ENQUEUE_URL = "/_ah/task/%s/%s"
 
 _TASKQUEUE_HEADERS = {"Content-Type": "application/octet-stream"}
 
@@ -85,10 +85,9 @@ def task(f=None, **taskkwargs):
 
     taskkwargscopy["headers"] = dict(_TASKQUEUE_HEADERS)
 
-    funcname = taskkwargscopy.get("name", f.__name__)
-    funcname = funcname if funcname else "unnamed"
-
-    taskkwargscopy["url"] = _DEFAULT_ENQUEUE_URL % funcname
+    url = _DEFAULT_ENQUEUE_URL % (getattr(f, '__module__', 'none'), getattr(f, '__name__', 'none'))
+    
+    taskkwargscopy["url"] = url.lower()
     
     logging.info(taskkwargscopy)
 
@@ -161,8 +160,8 @@ def addrouteforwebapp2(routes):
     
 def setuptasksforflask(flaskapp):
     @flaskapp.route(_DEFAULT_FLASK_URL, methods=["POST"])
-    def taskhandler(name):
-        _launch_task(flask.request.data, name, flask.request.headers)
+    def taskhandler(fmodule, ffunction):
+        _launch_task(flask.request.data, "%s/%s" % (fmodule, ffunction), flask.request.headers)
         return ""
 
 

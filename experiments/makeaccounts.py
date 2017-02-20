@@ -4,8 +4,9 @@ from taskutils import task
 import logging
 def MakeAccountsExperiment():
     def Go():
-        @task
-        def MakeAccounts(numaccounts):
+        @task(includeheaders=True)
+        def MakeAccounts(numaccounts, headers):
+            logging.debug(headers)
             logging.debug(numaccounts)
             if numaccounts <= 10:
                 accounts = []
