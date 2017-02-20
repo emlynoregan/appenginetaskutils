@@ -87,7 +87,7 @@ You can also use task to decorate a function on the fly, like this:
 
 Then you can call the function returned by task when you are ready:
 
-    somefunctiontask(1, 2)
+    somefunctionintask(1, 2)
     
 You could do both of these steps at once, too:
   
