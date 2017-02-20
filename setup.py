@@ -8,7 +8,7 @@ except ImportError:
 
 dist = setup(
     name='appenginetaskutils',
-    version='0.1',
+    version='0.1.1',
     description='Utilities for using appengine tasks. Inspired by deferred.',
     author='Emlyn O\'Regan',
     author_email='emlynoregan@gmail.com',

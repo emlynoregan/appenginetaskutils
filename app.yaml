@@ -8,6 +8,9 @@ handlers:
 
 - url: /_ah/task/.*
   script: taskutils.app
-
+  login: admin
+  
 - url: /.*
   script: main.app
+  login: admin
+  

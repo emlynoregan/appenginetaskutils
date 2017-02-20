@@ -4,19 +4,19 @@ import logging
 
 def shardedmap(mapf=None, ndbquery=None, initialshards = 10, **taskkwargs):
     @task(**taskkwargs)
-    def InvokeMap(key):
+    def InvokeMap(key, **kwargs):
         logging.debug("Enter InvokeMap: %s" % key)
         try:
             obj = key.get()
             if not obj:
                 raise RetryTaskException("couldn't get object for key %s" % key)
     
-            mapf(obj)
+            mapf(obj, **kwargs)
         finally:
             logging.debug("Leave InvokeMap: %s" % key)
     
     @task(**taskkwargs)
-    def MapOverRange(keyrange):
+    def MapOverRange(keyrange, **kwargs):
         logging.debug("Enter MapOverRange: %s" % keyrange)
 
         filteredquery = keyrange.filter_ndb_query(ndbquery)
@@ -27,7 +27,7 @@ def shardedmap(mapf=None, ndbquery=None, initialshards = 10, **taskkwargs):
 
         lastkey = None       
         for index, key in enumerate(keys):
-            logging.info("Key #%s: %s" % (index, key))
+            logging.debug("Key #%s: %s" % (index, key))
             lastkey = key
             InvokeMap(key)
                     
