@@ -3,7 +3,7 @@ This is the repo for the appengine task utils library. It generates the appengin
 
 ## Install
 
-Use the python package for this library.
+Use the python package for this library. You can find the package online [here](https://pypi.python.org/pypi/appenginetaskutils).
 
 Change to your Python App Engine project's root folder and do the following:
 
