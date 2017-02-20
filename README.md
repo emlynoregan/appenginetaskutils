@@ -9,15 +9,15 @@ Change to your Python App Engine project's root folder and do the following:
 
 > pip install appenginetaskutils --target lib
 
-Or add it to your requirements.txt. You'll also need to set up vendoring, see (app engine vendoring instructions here)[https://cloud.google.com/appengine/docs/python/tools/using-libraries-python-27].
+Or add it to your requirements.txt. You'll also need to set up vendoring, see [app engine vendoring instructions here](https://cloud.google.com/appengine/docs/python/tools/using-libraries-python-27).
 
-## task
+## @task
 
-The most basic element of the taskutils library is task(). This decorator function is designed to be used as a replacement for deferred.
+The most basic element of the taskutils library is task(). This decorator function is designed to be used as a replacement for [deferred](https://cloud.google.com/appengine/articles/deferred).
 
-### Configuring task
+### Configuring @task
 
-When using deferred you have a builtin to configure in app.yaml to make it work. For taskutils.task, you need to add the following to your app.yaml and/or <servicename>.yaml file:
+When using deferred you have a builtin to configure in app.yaml to make it work. For taskutils.task, you need to add the following to your app.yaml and/or \<servicename\>.yaml file:
 
 	handlers:
 		- url: /_ah/task/.*
@@ -46,7 +46,7 @@ Just call the function normally, eg:
  
 	myfunction()
 
-You can use @task on any function, including nested functions, recursive functions, recursive nested functions, the sky is the limit.
+You can use @task on any function, including nested functions, recursive functions, recursive nested functions, the sky is the limit. This is possible because of use of [yccloudpickle](https://medium.com/the-infinite-machine/python-function-serialisation-with-yccloudpickle-b2ff6b2ad5da#.zei3n0ibu) as the underlying serialisation library.
 
 Your function can also have arguments, including other functions:
 
@@ -74,7 +74,7 @@ When enqueuing a background task, the App Engine Task and TaskQueue libraries ca
 	def anotherfunction():
 	  ... do stuff ... 
 
-Details of the arguments allowed to Tasks are available (here)[https://cloud.google.com/appengine/docs/python/refdocs/google.appengine.api.taskqueue], under *class google.appengine.api.taskqueue.Task(payload=None, **kwargs)*. The task decorator supports a couple of extra ones, detailed below.
+Details of the arguments allowed to Tasks are available [here](https://cloud.google.com/appengine/docs/python/refdocs/google.appengine.api.taskqueue), under **class google.appengine.api.taskqueue.Task(payload=None, \*\*kwargs)**. The task decorator supports a couple of extra ones, detailed below.
 
 ### Using task as a factory
 
@@ -96,7 +96,7 @@ You could do both of these steps at once, too:
     
 ### transactional
 
-Pass transactional=True to have your (task launch transactionally)[https://cloud.google.com/appengine/docs/python/datastore/transactions#transactional_task_enqueuing]. eg:
+Pass transactional=True to have your [task launch transactionally](https://cloud.google.com/appengine/docs/python/datastore/transactions#transactional_task_enqueuing). eg:
 
 	@task(transactional=True)
 	def myserioustransactionaltask():
@@ -116,7 +116,7 @@ App Engine passes useful information to your task in headers, for example X-Appe
 
 ### other bits
 
-When using deferred, all your calls are logged as /_ah/queue/deferred. But @task uses a url of the form /_ah/task/<module>/<function>, eg:
+When using deferred, all your calls are logged as /_ah/queue/deferred. But @task uses a url of the form /_ah/task/\<module\>/\<function\>, eg:
 
 	/_ah/task/mymodule/somefunction
 	
