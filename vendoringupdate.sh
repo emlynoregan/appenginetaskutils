@@ -1,2 +1,2 @@
-pip install -r requirements.txt --target lib
+pip install --upgrade -r requirements.txt --target lib
 
