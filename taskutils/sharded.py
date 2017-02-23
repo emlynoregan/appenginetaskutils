@@ -50,10 +50,10 @@ def shardedmap(mapf=None, ndbquery=None, initialshards = 10, **taskkwargs):
         MapOverRange(kr)
 
 
-def futureshardedmap(mapf=None, ndbquery=None, initialshards = 10, **taskkwargs):
+def futureshardedmap(mapf=None, ndbquery=None, **taskkwargs):
     kind = ndbquery.kind
 
-    krlist = KeyRange.compute_split_points(kind, initialshards)
+    krlist = KeyRange.compute_split_points(kind, 5)
     logging.debug("first krlist: %s" % krlist)
     logging.debug(taskkwargs)
 
@@ -73,42 +73,51 @@ def futureshardedmap(mapf=None, ndbquery=None, initialshards = 10, **taskkwargs)
             finally:
                 logging.debug("Leave InvokeMap: %s" % key)
         
-        @ndb.transactional(xg=True)
         def OnSuccess(childfuture, initialamount = 0):
+            logging.debug("A: cfhasr=%s" % childfuture.has_result())
+#             childfuture = childfuture.key.get()
+#             logging.debug("B: cfhasr=%s" % childfuture.has_result())
             parentfuture = childfuture.parentkey.get() if childfuture.parentkey else None
             logging.debug(childfuture)
             logging.debug(parentfuture)
             if parentfuture and not parentfuture.has_result():
-                children = get_children(parentfuture.key)
-                logging.debug("children: %s" % children)
-                if children:
-                    result = initialamount
-                    error = None
-                    finished = True
-                    for childfuture in children:
-                        logging.debug("childfuture: %s" % childfuture)
-                        if childfuture.has_result():
-                            try:
-                                result += childfuture.get_result()
-                            except Exception, ex:
-                                error = ex
-                                break
+                @ndb.transactional(xg=True)
+                def dotrans():
+                    children = get_children(parentfuture.key)
+                    logging.debug("children: %s" % [child.key for child in children])
+                    if children:
+                        result = initialamount
+                        error = None
+                        finished = True
+                        for childfuture in children:
+                            logging.debug("childfuture: %s" % childfuture.key)
+                            if childfuture.has_result():
+                                try:
+                                    result += childfuture.get_result()
+                                    logging.debug("hasresult:%s" % result)
+                                except Exception, ex:
+                                    logging.debug("haserror:%s" % repr(ex))
+                                    error = ex
+                                    break
+                            else:
+                                logging.debug("noresult")
+                                finished = False
+                                
+                        if error:
+                            logging.debug("error: %s" % error)
+                            parentfuture.set_failure(error)
+                        elif finished:
+                            logging.debug("result: %s" % result)
+                            parentfuture.set_success(result)
                         else:
-                            finished = False
-                            
-                    if error:
-                        logging.debug("error: %s" % error)
-                        parentfuture.set_failure(error)
-                    elif finished:
-                        logging.debug("result: %s" % result)
-                        parentfuture.set_success(result)
+                            logging.debug("not finished")
                     else:
-                        logging.debug("not finished")
-                else:
-                    parentfuture.set_failure(Exception("no children found"))
+                        parentfuture.set_failure(Exception("no children found"))
+                dotrans()
 
         @ndb.transactional(xg=True)
         def OnFailure(childfuture):
+#             childfuture = childfuture.key.get()
             parentfuture = childfuture.parentkey.get() if childfuture.parentkey else None
             if parentfuture and not parentfuture.has_result():
                 try:
@@ -119,17 +128,24 @@ def futureshardedmap(mapf=None, ndbquery=None, initialshards = 10, **taskkwargs)
         def MapOverRange(keyrange, futurekey, **kwargs):
             logging.debug("Enter MapOverRange: %s" % keyrange)
             try:
+                if keyrange.key_end == None:
+                    endkey = KeyRange.guess_end_key(kind, keyrange.key_start)
+                    if endkey and endkey > keyrange.key_start:
+                        logging.debug("Fixing end: %s" % endkey)
+                        keyrange.key_end = endkey
+                
                 filteredquery = keyrange.filter_ndb_query(ndbquery)
                 
                 logging.debug (filteredquery)
                 
-                keys, _, more = filteredquery.fetch_page(100, keys_only=True)
+                keys, _, more = filteredquery.fetch_page(10, keys_only=True)
         
                 lastkey = None       
                 for index, key in enumerate(keys):
                     logging.debug("Key #%s: %s" % (index, key))
                     lastkey = key
-                    InvokeMap(key)
+                    if mapf:
+                        InvokeMap(key)
                             
                 if more:
                     newkeyrange = KeyRange(lastkey, keyrange.key_end, keyrange.direction, False, False)

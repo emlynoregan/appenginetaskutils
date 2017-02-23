@@ -5,6 +5,7 @@ from yccloudpickle import yccloudpickle
 import pickle
 import datetime
 import logging
+import uuid
 
 class FutureUnderwayError(Exception):
     pass
@@ -12,9 +13,14 @@ class FutureUnderwayError(Exception):
 class FutureTimedOutError(Exception):
     pass
 
+class _FutureProgress(ndb.model.Model):
+    progress = ndb.FloatProperty()
+    weight = ndb.IntegerProperty()
+
 class _Future(ndb.model.Model):
     stored = ndb.DateTimeProperty(auto_now_add = True)
     updated = ndb.DateTimeProperty(auto_now = True)
+    parentkey = ndb.KeyProperty()
     resultser = ndb.BlobProperty()
     exceptionser = ndb.BlobProperty()
     updateresultfser = ndb.BlobProperty()
@@ -25,9 +31,6 @@ class _Future(ndb.model.Model):
     taskkwargsser = ndb.BlobProperty()
     status = ndb.StringProperty()
     runtimesec = ndb.FloatProperty()
-    progress = ndb.FloatProperty()
-    weight = ndb.IntegerProperty()
-    parentkey = ndb.KeyProperty()
 
     def has_result(self):
         return not not self.status
@@ -39,19 +42,29 @@ class _Future(ndb.model.Model):
             return pickle.loads(self.resultser)
         else:
             raise FutureUnderwayError("result not ready")
+
+    def _get_progressobject(self):
+        key = ndb.Key(_FutureProgress, self.key.id())
+        progressobj = key.get()
+        if not progressobj:
+            progressobj = _FutureProgress(key = key)
+        return progressobj
     
-    def get_progress(self):
+    def get_progress(self, progressobj = None):
         if self.status:
             return 1.0
         else:
-            return self.progress if self.progress else 0.0
+            progressobj = progressobj if progressobj else self._get_progressobject()
+            return progressobj.progress if progressobj and progressobj.progress else 0.0
         
-    def get_weight(self):
-        return self.weight if self.weight > 0 else 1
+    def get_weight(self, progressobj = None):
+        progressobj = progressobj if progressobj else self._get_progressobject()
+        return progressobj.weight if progressobj and progressobj.weight > 0 else 1
 
-    def get_weightedprogress(self):
-        progress = self.get_progress()
-        weight = self.get_weight()
+    def get_weightedprogress(self, progressobj = None):
+        progressobj = progressobj if progressobj else self._get_progressobject()
+        progress = self.get_progress(progressobj)
+        weight = self.get_weight(progressobj)
         return progress * weight
 
     def update_result(self):
@@ -65,16 +78,19 @@ class _Future(ndb.model.Model):
         elif self.status == "success":
             self._callOnSuccess()
                 
+#     @ndb.non_transactional
     def _callOnSuccess(self):
         onsuccessf = pickle.loads(self.onsuccessfser) if self.onsuccessfser else None
         if onsuccessf:
             onsuccessf(self)
             
+#     @ndb.non_transactional
     def _callOnFailure(self):
         onfailuref = pickle.loads(self.onfailurefser) if self.onfailurefser else None
         if onfailuref:
             onfailuref(self)
                 
+#     @ndb.non_transactional
     def _callOnProgress(self):
         onprogressf = pickle.loads(self.onprogressfser) if self.onprogressfser else DefaultOnProgressF
         if onprogressf:
@@ -86,64 +102,122 @@ class _Future(ndb.model.Model):
         else:
             return datetime.datetime.utcnow() - self.stored             
 
+    @ndb.non_transactional
     def set_success(self, result):
         selfkey = self.key
         @ndb.transactional
         def set_status_transactional():
             self = selfkey.get()
+            didput = False
             if not self.status:
                 self.status = "success"
                 self.progress = 1.0
                 self.resultser = yccloudpickle.dumps(result)
                 self.runtimesec = self.get_runtime().total_seconds()
+                didput = True
                 self.put()
-            return self
-        self = set_status_transactional()
-        self._callOnProgress()
-        self._callOnSuccess()
+            return self, didput
+        self, needcalls = set_status_transactional()
+        if needcalls:
+            self._callOnProgress()
+            self._callOnSuccess()
 
+    @ndb.non_transactional
     def set_failure(self, exception):
         selfkey = self.key
         @ndb.transactional
         def set_status_transactional():
             self = selfkey.get()
+            didput = False
             if not self.status:
                 self.status = "failure"
                 self.exceptionser = yccloudpickle.dumps(exception)
                 self.runtimesec = self.get_runtime().total_seconds()
+                didput = True
                 self.put()
-            return self
-        self = set_status_transactional()
-        self._callOnFailure()
+            return self, didput
+        self, needcalls = set_status_transactional()
+        if needcalls:
+            self._callOnFailure()
             
     def set_progress(self, value):
-        selfkey = self.key
-        @ndb.transactional
-        def set_value_transactional():
-            self = selfkey.get()
-            if value != self.progress:
-                self.progress = value
-                self.put()
-            return self
-        self = set_value_transactional()
-        self._callOnProgress()
+        progressobj = self._get_progressobject()
+        needcalls = False
+        if progressobj.progress != value:
+            progressobj.progress = value
+            needcalls = True
+            progressobj.put()
+        if needcalls:
+            self._callOnProgress()
 
     def set_weight(self, value):
-        selfkey = self.key
-        @ndb.transactional
-        def set_value_transactional():
-            self = selfkey.get()
-            if value != self.weight:
-                self.weight = value
-                self.put()
-            return self
-        self = set_value_transactional()
+        progressobj = self._get_progressobject()
+        needcalls = False
+        if progressobj.weight != value:
+            progressobj.weight = value
+            needcalls = True
+            progressobj.put()
+        if needcalls:
+            self._callOnProgress()
+
+    def incr_weight(self, value):
+        progressobj = self._get_progressobject()
+        if progressobj.weight:
+            progressobj.weight += value
+        else:
+            progressobj.weight = value
+        progressobj.put()
         self._callOnProgress()
+
+    def set_progress_and_weight(self, progress, weight):
+        progressobj = self._get_progressobject()
+        needput = False
+        if progressobj.progress != progress:
+            progressobj.progress = progress
+            needput = True
+        if progressobj.weight != weight:
+            progressobj.weight = weight
+            needput = True
+        if needput:
+            progressobj.put()
+            self._callOnProgress()
+
+#     def set_progress(self, value):
+#         selfkey = self.key
+#         @ndb.transactional
+#         def set_value_transactional():
+#             self = selfkey.get()
+#             didput = False
+#             if value != self.progress:
+#                 self.progress = value
+#                 didput = True
+#                 self.put()
+#             return self, didput
+#         self, needcalls = set_value_transactional()
+#         if needcalls:
+#             self._callOnProgress()
+
+#     def set_weight(self, value):
+#         selfkey = self.key
+#         @ndb.transactional
+#         def set_value_transactional():
+#             self = selfkey.get()
+#             didput = False
+#             if value != self.weight:
+#                 self.weight = value
+#                 didput = True
+#                 self.put()
+#             return self, didput
+#         self, needcalls = set_value_transactional()
+#         if needcalls:
+#             self._callOnProgress()
 
     def to_dict(self):
         if not self.has_result():
             self.update_result()
-             
+
+        progressobj = self._get_progressobject()
+                     
         return {
             "key": str(self.key) if self.key else None,
             "stored": str(self.stored) if self.stored else None,
@@ -152,9 +226,9 @@ class _Future(ndb.model.Model):
             "result": str(pickle.loads(self.resultser)) if self.resultser else None,
             "exception": str(pickle.loads(self.exceptionser)) if self.exceptionser else None,
             "runtimesec": self.get_runtime().total_seconds(),
-            "progress": self.get_progress(),
-            "weight": self.get_weight(),
-            "weightedprogress": self.get_weightedprogress()
+            "progress": self.get_progress(progressobj),
+            "weight": self.get_weight(progressobj),
+            "weightedprogress": self.get_weightedprogress(progressobj)
         }
         
 def DefaultUpdateResultFOld(futureobj):
@@ -181,31 +255,29 @@ def DefaultUpdateResultF(futureobj):
 def DefaultOnProgressF(futureobj):
 #     pass
     taskkwargs = pickle.loads(futureobj.taskkwargsser)
- 
+  
     logging.debug("Enter DefaultOnProgressF: %s" % futureobj)
     @task(**taskkwargs)
     def UpdateParent(parentkey):
         logging.debug("***************************************************")
         logging.debug("Enter UpdateParent: %s" % parentkey)
         logging.debug("***************************************************")
-        @ndb.transactional(xg=True)
-        def DoUpdate():
-            parent = parentkey.get()
-            logging.debug("1: %s" % parent)
-            if parent:
-                logging.debug("2")
-                weightedprogress = 1.0 if parent.has_result() else 0.0
+
+        parent = parentkey.get()
+        logging.debug("1: %s" % parent)
+        if parent:
+            logging.debug("2")
+            weightedprogress = 1.0 if parent.has_result() else 0.0
+            weight = 1
+            for childfuture in get_children(parentkey):
+                logging.debug("3: %s" % childfuture)
+                weightedprogress += childfuture.get_weightedprogress()
+                weight += childfuture.get_weight()
+            if weight <= 0:
                 weight = 1
-                for childfuture in get_children(parentkey):
-                    logging.debug("3: %s" % childfuture)
-                    weightedprogress += childfuture.get_weightedprogress()
-                    weight += childfuture.get_weight()
-                if weight <= 0:
-                    weight = 1
-                logging.debug("4: %s, %s" % (weightedprogress, weight))
-                parent.set_progress(weightedprogress / weight)
-                parent.set_weight(weight)
-        DoUpdate()
+            logging.debug("4: %s, %s" % (weightedprogress, weight))
+            parent.set_progress_and_weight(weightedprogress / weight, weight)
+
     if futureobj.parentkey:
         UpdateParent(futureobj.parentkey)
 
@@ -229,9 +301,15 @@ def future(f=None, parentkey=None, includefuturekey=False,
     
     @functools.wraps(f)
     def runfuture(*args, **kwargs):
+        logging.debug("runfuture: parentkey=%s" % parentkey)
+
         immediateancestorkey = ndb.Key(parentkey.kind(), parentkey.id()) if parentkey else None
+        newkey = ndb.Key(_Future, str(uuid.uuid4()), parent = immediateancestorkey)
         
-        futureobj = _Future(parent = immediateancestorkey) # just use immediate ancestor to keep entity groups at local level, not one for the entire tree
+        logging.debug("runfuture: ancestorkey=%s" % immediateancestorkey)
+        logging.debug("runfuture: newkey=%s" % newkey)
+
+        futureobj = _Future(key=newkey) # just use immediate ancestor to keep entity groups at local level, not one for the entire tree
         
         futureobj.parentkey = parentkey # but keep the real parent key for lookups
         
@@ -249,11 +327,15 @@ def future(f=None, parentkey=None, includefuturekey=False,
         futureobj.progress = 0.0
             
         futureobj.put()
+        logging.debug("runfuture: childkey=%s" % futureobj.key)
         
         parent = parentkey.get() if parentkey else None
         logging.debug("** parent: %s" % parent)
         if parent:
-            parent.set_weight(parent.get_weight() + 1)
+            try:
+                parent.incr_weight(1)
+            except Exception:
+                logging.exception("failed to increment parent weight, skipping")
         
         futurekey = futureobj.key
         
@@ -264,12 +346,12 @@ def future(f=None, parentkey=None, includefuturekey=False,
                     result = f(*args, futurekey = futurekey, **kwargs)
                 else:
                     result = f(*args, **kwargs)
-    
+
                 futureobj = futurekey.get()
                 if futureobj:
                     futureobj.set_success(result)
             except FutureUnderwayError:
-                logging.exception("not finished")
+                logging.debug("not finished")
                 pass # ran successfully, but the result isn't ready.
                 
         _futurewrapper()

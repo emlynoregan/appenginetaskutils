@@ -15,7 +15,7 @@ def CountAccountsWithFutureExperiment():
                 def OnSuccess(childfuture):
                     parentfuture = futurekey.get()
                     try:
-                        if childfuture and parentfuture:
+                        if childfuture and parentfuture and not parentfuture.has_result():
                             result = numaccounts + childfuture.get_result()
                             parentfuture.set_success(result)
                     except Exception, ex:
