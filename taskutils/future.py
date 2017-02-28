@@ -78,19 +78,16 @@ class _Future(ndb.model.Model):
         elif self.status == "success":
             self._callOnSuccess()
                 
-#     @ndb.non_transactional
     def _callOnSuccess(self):
         onsuccessf = pickle.loads(self.onsuccessfser) if self.onsuccessfser else None
         if onsuccessf:
             onsuccessf(self)
             
-#     @ndb.non_transactional
     def _callOnFailure(self):
         onfailuref = pickle.loads(self.onfailurefser) if self.onfailurefser else None
         if onfailuref:
             onfailuref(self)
                 
-#     @ndb.non_transactional
     def _callOnProgress(self):
         onprogressf = pickle.loads(self.onprogressfser) if self.onprogressfser else DefaultOnProgressF
         if onprogressf:
@@ -231,10 +228,6 @@ class _Future(ndb.model.Model):
             "weightedprogress": self.get_weightedprogress(progressobj)
         }
         
-def DefaultUpdateResultFOld(futureobj):
-    if not futureobj.status and futureobj.get_runtime() > datetime.timedelta(seconds = 1800): # 30 minute timeout
-        futureobj.set_failure(FutureTimedOutError("timeout"))
-
 def DefaultUpdateResultF(futureobj):
     if not futureobj.status and futureobj.get_runtime() > datetime.timedelta(seconds = 1800): # 30 min timeout
         futureobj.set_failure(FutureTimedOutError("timeout"))
@@ -244,12 +237,8 @@ def DefaultUpdateResultF(futureobj):
     @task(**taskkwargs)
     def UpdateChildren():
         for childfuture in get_children(futureobj.key):
-            logging.debug("ur: %s" % childfuture.key)
-            logging.debug("UPDATE")
+            logging.debug("update_result: %s" % childfuture.key)
             childfuture.update_result()
-#             if futureobj.status:
-#                 logging.debug("DELETE")
-#                 childfuture.key.delete()
     UpdateChildren()
 
 def DefaultOnProgressF(futureobj):
