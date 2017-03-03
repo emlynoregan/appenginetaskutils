@@ -1,8 +1,8 @@
 from __future__ import absolute_import
 
 from taskutils.task import task, addrouteforwebapp, addrouteforwebapp2, setuptasksforflask
-from taskutils.sharded import shardedmap, futureshardedmap
-from taskutils.future import future, FutureTimedOutError, FutureUnderwayError, _Future, DefaultUpdateResultF, get_children
+from taskutils.sharded import shardedpagemap, shardedmap, futureshardedpagemap, futureshardedmap, futureshardedpagemapwithcount, futureshardedmapwithcount 
+from taskutils.future import future, FutureTimedOutError, FutureReadyForResult, FutureNotReadyForResult, _Future, get_children
 
 from flask import Flask
 
