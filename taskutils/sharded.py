@@ -89,7 +89,7 @@ def futureshardedpagemap(pagemapf=None, ndbquery=None, pagesize=100, onsuccessf=
                         logging.debug("childfuture: %s" % childfuture.key)
                         if childfuture.has_result():
                             try:
-                                result += childfuture.get_result()[0]
+                                result += childfuture.get_result()
                                 logging.debug("hasresult:%s" % result)
                             except Exception, ex:
                                 logging.debug("haserror:%s" % repr(ex))
@@ -104,7 +104,7 @@ def futureshardedpagemap(pagemapf=None, ndbquery=None, pagesize=100, onsuccessf=
                         parentfuture.set_failure(error)
                     elif finished:
                         logging.debug("result: %s" % result)
-                        parentfuture.set_success((result, initialamount, keyrange))
+                        parentfuture.set_success(result)#(result, initialamount, keyrange))
                     else:
                         logging.debug("not finished")
                 else:
@@ -147,7 +147,7 @@ def futureshardedpagemap(pagemapf=None, ndbquery=None, pagesize=100, onsuccessf=
                      
                     raise FutureReadyForResult("still going")
                 else:
-                    return (len(keys), 0, keyrange)
+                    return len(keys)#(len(keys), 0, keyrange)
             finally:
                 logging.debug("Leave MapOverRange: %s" % keyrange)
   
@@ -203,7 +203,7 @@ def futureshardedpagemapwithcount(pagemapf=None, ndbquery=None, pagesize=100, on
                 future.set_success(pagemapfuture.get_result())
          
         def OnCountSuccess(countfuture):
-            count = countfuture.get_result()[0]
+            count = countfuture.get_result()
             placeholderfuture = placeholderfuturekey.get()
             if placeholderfuture:
                 placeholderfuture.set_weight(count)

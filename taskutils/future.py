@@ -4,8 +4,9 @@ from taskutils import task
 from yccloudpickle import yccloudpickle
 import pickle
 import datetime
-import logging
+# import logging
 import uuid
+import json
 
 class FutureReadyForResult(Exception):
     pass
@@ -29,7 +30,6 @@ class _Future(ndb.model.Model):
     parentkey = ndb.KeyProperty()
     resultser = ndb.BlobProperty()
     exceptionser = ndb.BlobProperty()
-    updateresultfser = ndb.BlobProperty()
     onsuccessfser = ndb.BlobProperty()
     onfailurefser = ndb.BlobProperty()
     onprogressfser = ndb.BlobProperty()
@@ -88,7 +88,9 @@ class _Future(ndb.model.Model):
             onfailuref(self)
                 
     def _callOnProgress(self):
-        onprogressf = pickle.loads(self.onprogressfser) if self.onprogressfser else DefaultOnProgressF
+        OnProgressF(self)
+        
+        onprogressf = pickle.loads(self.onprogressfser) if self.onprogressfser else None
         if onprogressf:
             onprogressf(self)
             
@@ -213,11 +215,15 @@ class _Future(ndb.model.Model):
         
         resultrep = None
         result = pickle.loads(self.resultser) if self.resultser else None
-        if result:
+        if not result is None:
             try:
                 resultrep = result.to_dict()
             except:
-                resultrep = str(result)
+                try:
+                    json.dumps(result)
+                    resultrep = result
+                except:
+                    resultrep = str(result)
         
         return {
             "key": str(self.key) if self.key else None,
@@ -243,36 +249,35 @@ def UpdateResultF(futureobj):
     @task(**taskkwargs)
     def UpdateChildren():
         for childfuture in get_children(futureobj.key):
-            logging.debug("update_result: %s" % childfuture.key)
+#             logging.debug("update_result: %s" % childfuture.key)
             childfuture.update_result()
     UpdateChildren()
 
-def DefaultOnProgressF(futureobj):
-#     pass
-    taskkwargs = pickle.loads(futureobj.taskkwargsser)
-  
-    logging.debug("Enter DefaultOnProgressF: %s" % futureobj)
-    @task(**taskkwargs)
-    def UpdateParent(parentkey):
-        logging.debug("***************************************************")
-        logging.debug("Enter UpdateParent: %s" % parentkey)
-        logging.debug("***************************************************")
-
-        parent = parentkey.get()
-        logging.debug("1: %s" % parent)
-        if parent:
-            logging.debug("2")
-            if parent.has_result():
-                progress = parent.get_weight()
-            else:
-                progress = 0
-                for childfuture in get_children(parentkey):
-                    logging.debug("3: %s" % childfuture)
-                    progress += childfuture.get_progress()
-            logging.debug("4: %s" % (progress))
-            parent.set_progress(progress)
-
+def OnProgressF(futureobj):
     if futureobj.parentkey:
+        taskkwargs = pickle.loads(futureobj.taskkwargsser)
+      
+    #     logging.debug("Enter OnProgressF: %s" % futureobj)
+        @task(**taskkwargs)
+        def UpdateParent(parentkey):
+    #         logging.debug("***************************************************")
+    #         logging.debug("Enter UpdateParent: %s" % parentkey)
+    #         logging.debug("***************************************************")
+    
+            parent = parentkey.get()
+    #         logging.debug("1: %s" % parent)
+            if parent:
+    #             logging.debug("2")
+                if parent.has_result():
+                    progress = parent.get_weight()
+                else:
+                    progress = 0
+                    for childfuture in get_children(parentkey):
+    #                     logging.debug("3: %s" % childfuture)
+                        progress += childfuture.get_progress()
+    #             logging.debug("4: %s" % (progress))
+                parent.set_progress(progress)
+    
         UpdateParent(futureobj.parentkey)
 
 def get_children(futurekey):
@@ -291,17 +296,17 @@ def future(f=None, parentkey=None, includefuturekey=False,
             onsuccessf=onsuccessf, onfailuref=onfailuref, onprogressf=onprogressf, weight = weight, timeoutsec = timeoutsec,
             **taskkwargs)
     
-    logging.debug("includefuturekey: %s" % includefuturekey)
+#     logging.debug("includefuturekey: %s" % includefuturekey)
     
     @functools.wraps(f)
     def runfuture(*args, **kwargs):
-        logging.debug("runfuture: parentkey=%s" % parentkey)
+#         logging.debug("runfuture: parentkey=%s" % parentkey)
 
         immediateancestorkey = ndb.Key(parentkey.kind(), parentkey.id()) if parentkey else None
         newkey = ndb.Key(_Future, str(uuid.uuid4()), parent = immediateancestorkey)
         
-        logging.debug("runfuture: ancestorkey=%s" % immediateancestorkey)
-        logging.debug("runfuture: newkey=%s" % newkey)
+#         logging.debug("runfuture: ancestorkey=%s" % immediateancestorkey)
+#         logging.debug("runfuture: newkey=%s" % newkey)
 
         futureobj = _Future(key=newkey) # just use immediate ancestor to keep entity groups at local level, not one for the entire tree
         
@@ -320,7 +325,7 @@ def future(f=None, parentkey=None, includefuturekey=False,
         futureobj.timeoutsec = timeoutsec
             
         futureobj.put()
-        logging.debug("runfuture: childkey=%s" % futureobj.key)
+#         logging.debug("runfuture: childkey=%s" % futureobj.key)
                 
         futurekey = futureobj.key
         
