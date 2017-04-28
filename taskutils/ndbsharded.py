@@ -4,7 +4,7 @@ import logging
 from future import future, get_children, FutureReadyForResult, FutureNotReadyForResult
 from google.appengine.ext import ndb
 
-def shardedpagemap(pagemapf=None, ndbquery=None, initialshards = 10, pagesize = 100, **taskkwargs):
+def ndbshardedpagemap(pagemapf=None, ndbquery=None, initialshards = 10, pagesize = 100, **taskkwargs):
     @task(**taskkwargs)
     def MapOverRange(keyrange, **kwargs):
         logging.debug("Enter MapOverRange: %s" % keyrange)
@@ -36,7 +36,7 @@ def shardedpagemap(pagemapf=None, ndbquery=None, initialshards = 10, pagesize = 
     for kr in krlist:
         MapOverRange(kr)
 
-def shardedmap(mapf=None, ndbquery=None, initialshards = 10, pagesize = 100, **taskkwargs):
+def ndbshardedmap(mapf=None, ndbquery=None, initialshards = 10, pagesize = 100, **taskkwargs):
     @task(**taskkwargs)
     def InvokeMap(key, **kwargs):
         logging.debug("Enter InvokeMap: %s" % key)
@@ -54,10 +54,10 @@ def shardedmap(mapf=None, ndbquery=None, initialshards = 10, pagesize = 100, **t
             logging.debug("Key #%s: %s" % (index, key))
             InvokeMap(key)
 
-    shardedpagemap(ProcessPage, ndbquery, initialshards, pagesize, **taskkwargs)
+    ndbshardedpagemap(ProcessPage, ndbquery, initialshards, pagesize, **taskkwargs)
 
 
-def futureshardedpagemap(pagemapf=None, ndbquery=None, pagesize=100, onsuccessf=None, onfailuref=None, onprogressf = None, weight = 1, parentkey=None, **taskkwargs):
+def futurendbshardedpagemap(pagemapf=None, ndbquery=None, pagesize=100, onsuccessf=None, onfailuref=None, onprogressf = None, weight = 1, parentkey=None, **taskkwargs):
     kind = ndbquery.kind
  
     krlist = KeyRange.compute_split_points(kind, 5)
@@ -65,7 +65,7 @@ def futureshardedpagemap(pagemapf=None, ndbquery=None, pagesize=100, onsuccessf=
     logging.debug(taskkwargs)
  
     @future(includefuturekey = True, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, parentkey=parentkey, weight = weight, **taskkwargs)
-    def dofutureshardedmap(futurekey):
+    def dofuturendbshardedmap(futurekey):
         logging.debug(taskkwargs)
                  
         def OnSuccess(childfuture, keyrange, initialamount = 0):
@@ -159,10 +159,10 @@ def futureshardedpagemap(pagemapf=None, ndbquery=None, pagesize=100, onsuccessf=
  
         raise FutureReadyForResult("still going")
  
-    return dofutureshardedmap()
+    return dofuturendbshardedmap()
 
 
-def futureshardedmap(mapf=None, ndbquery=None, pagesize = 100, onsuccessf = None, onfailuref = None, onprogressf = None, weight= 1, parentkey = None, **taskkwargs):
+def futurendbshardedmap(mapf=None, ndbquery=None, pagesize = 100, onsuccessf = None, onfailuref = None, onprogressf = None, weight= 1, parentkey = None, **taskkwargs):
     @task(**taskkwargs)
     def InvokeMap(key, **kwargs):
         logging.debug("Enter InvokeMap: %s" % key)
@@ -180,10 +180,10 @@ def futureshardedmap(mapf=None, ndbquery=None, pagesize = 100, onsuccessf = None
             logging.debug("Key #%s: %s" % (index, key))
             InvokeMap(key)
 
-    return futureshardedpagemap(ProcessPage, ndbquery, pagesize, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = None, parentkey=parentkey, **taskkwargs)
+    return futurendbshardedpagemap(ProcessPage, ndbquery, pagesize, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = None, parentkey=parentkey, **taskkwargs)
 
 
-def futureshardedpagemapwithcount(pagemapf=None, ndbquery=None, pagesize=100, onsuccessf=None, onfailuref=None, onprogressf=None, parentkey = None, **taskkwargs):
+def futurendbshardedpagemapwithcount(pagemapf=None, ndbquery=None, pagesize=100, onsuccessf=None, onfailuref=None, onprogressf=None, parentkey = None, **taskkwargs):
     
     @future(includefuturekey = True, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, parentkey = parentkey, weight = 200, **taskkwargs)
     def countthenpagemap(futurekey):
@@ -210,18 +210,18 @@ def futureshardedpagemapwithcount(pagemapf=None, ndbquery=None, pagesize=100, on
                 future = futurekey.get()
                 if future:
                     future.set_weight(count + 100)
-                futureshardedpagemap(pagemapf, ndbquery, pagesize, onsuccessf = OnPageMapSuccess, weight = count, parentkey = placeholderfuturekey, **taskkwargs)
+                futurendbshardedpagemap(pagemapf, ndbquery, pagesize, onsuccessf = OnPageMapSuccess, weight = count, parentkey = placeholderfuturekey, **taskkwargs)
 
                 # now that the second pass is actually constructed and running, we can let the placeholder accept a result.
                 placeholderfuture.set_readyforesult()
          
-        futureshardedpagemap(None, ndbquery, pagesize, onsuccessf = OnCountSuccess, parentkey = futurekey, weight = 100, **taskkwargs)
+        futurendbshardedpagemap(None, ndbquery, pagesize, onsuccessf = OnCountSuccess, parentkey = futurekey, weight = 100, **taskkwargs)
         
         raise FutureReadyForResult("still going")
         
     return countthenpagemap()
 
-def futureshardedmapwithcount(mapf=None, ndbquery=None, pagesize = 100, onsuccessf = None, onfailuref = None, onprogressf = None, parentkey = None, **taskkwargs):
+def futurendbshardedmapwithcount(mapf=None, ndbquery=None, pagesize = 100, onsuccessf = None, onfailuref = None, onprogressf = None, parentkey = None, **taskkwargs):
     @task(**taskkwargs)
     def InvokeMap(key, **kwargs):
         logging.debug("Enter InvokeMap: %s" % key)
@@ -239,7 +239,7 @@ def futureshardedmapwithcount(mapf=None, ndbquery=None, pagesize = 100, onsucces
             logging.debug("Key #%s: %s" % (index, key))
             InvokeMap(key)
 
-    return futureshardedpagemapwithcount(ProcessPage, ndbquery, pagesize, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, parentkey = parentkey, **taskkwargs)
+    return futurendbshardedpagemapwithcount(ProcessPage, ndbquery, pagesize, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, parentkey = parentkey, **taskkwargs)
         
 
 def _fixkeyend(keyrange, kind):
