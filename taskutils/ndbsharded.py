@@ -180,7 +180,7 @@ def futurendbshardedmap(mapf=None, ndbquery=None, pagesize = 100, onsuccessf = N
             logging.debug("Key #%s: %s" % (index, key))
             InvokeMap(key)
 
-    return futurendbshardedpagemap(ProcessPage, ndbquery, pagesize, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = None, parentkey=parentkey, **taskkwargs)
+    return futurendbshardedpagemap(ProcessPage, ndbquery, pagesize, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = None, parentkey=parentkey, weight=weight, **taskkwargs)
 
 
 def futurendbshardedpagemapwithcount(pagemapf=None, ndbquery=None, pagesize=100, onsuccessf=None, onfailuref=None, onprogressf=None, parentkey = None, **taskkwargs):
