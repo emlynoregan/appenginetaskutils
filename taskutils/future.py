@@ -353,3 +353,54 @@ def future(f=None, parentkey=None, includefuturekey=False,
         return futureobj
 
     return runfuture
+
+def twostagefuture(createstage1futuref, createstage2futuref, onsuccessf=None, onfailuref=None, onprogressf=None, parentkey = None, **taskkwargs):
+    @future(includefuturekey = True, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, parentkey = parentkey, **taskkwargs)
+    def toplevel(futurekey):
+
+        @future(parentkey=futurekey, **taskkwargs)
+        def DoNothing():
+            raise FutureNotReadyForResult("this does nothing")
+         
+        placeholderfuture = DoNothing()
+        placeholderfuturekey = placeholderfuture.key
+
+        def OnStage2Success(stage1future):
+            stage1result = stage1future.get_result()
+            placeholderfuture = placeholderfuturekey.get()
+            if placeholderfuture:
+                placeholderfuture.set_success(stage1result)
+            toplevelfuture = futurekey.get()
+            if toplevelfuture:
+                toplevelfuture.set_success(stage1result)
+        
+        def OnStage1Success(stage1future):
+            placeholderfuture = placeholderfuturekey.get()
+            if placeholderfuture:
+                stage2future = createstage2futuref(stage1future, parentkey = placeholderfuturekey, onsuccessf = OnStage2Success, onfailuref = StandardOnFailure, **taskkwargs)
+
+                placeholderfuture.set_weight(stage2future.get_weight())
+                toplevelfuture = futurekey.get()
+                if toplevelfuture:
+                    toplevelfuture.set_weight(toplevelfuture.get_weight() + stage2future.get_weight())
+
+                # now that the second pass is actually constructed and running, we can let the placeholder accept a result.
+                placeholderfuture.set_readyforesult()
+
+        @ndb.transactional(xg=True)
+        def StandardOnFailure(childfuture):
+            parentfuture = childfuture.parentkey.get() if childfuture.parentkey else None
+            if parentfuture and not parentfuture.has_result():
+                try:
+                    childfuture.get_result()
+                except Exception, ex:
+                    parentfuture.set_failure(ex)
+
+        toplevelfuture = futurekey.get()
+        if toplevelfuture:
+            stage1future = createstage1futuref(parentkey = futurekey, onsuccessf = OnStage1Success, onfailuref = StandardOnFailure, **taskkwargs)
+            toplevelfuture.set_weight(stage1future.get_weight())
+        
+        raise FutureReadyForResult("still going")
+        
+    return toplevel()
