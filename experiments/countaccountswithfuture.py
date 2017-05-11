@@ -1,6 +1,7 @@
 from model.account import Account
-from taskutils import future, FutureUnderwayError
+from taskutils import future
 import logging
+from taskutils.future import FutureReadyForResult
 
 def CountAccountsWithFutureExperiment():
     def Go():
@@ -36,7 +37,7 @@ def CountAccountsWithFutureExperiment():
         
                 future(CountRemaining, parentkey=futurekey, includefuturekey=True, queue="background", onsuccessf=OnSuccess, onfailuref=OnFailure)(cursor)
                                 
-                raise FutureUnderwayError("still calculating")
+                raise FutureReadyForResult("still calculating")
             else:
                 return numaccounts
         

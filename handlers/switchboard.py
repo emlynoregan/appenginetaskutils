@@ -6,6 +6,7 @@ from experiments.incrementaccountswithshardedmap import IncrementAccountsWithSha
 from experiments.deleteaccountswithshardedmap import DeleteAccountsWithShardedMapExperiment, DeleteAccountsWithFutureShardedMapExperiment
 from experiments.makeaccounts import MakeAccountsExperiment
 from experiments.countaccountswithfuture import CountAccountsWithFutureExperiment
+from experiments.tasktests import TaskTest1
 
 def get_switchboard(app):
     experiments = [
@@ -17,6 +18,7 @@ def get_switchboard(app):
         DeleteAccountsWithShardedMapExperiment(),
         DeleteAccountsWithFutureShardedMapExperiment(),
         MakeAccountsExperiment(),
+        TaskTest1()
     ]
 
     @app.route('/', methods=["GET", "POST"])

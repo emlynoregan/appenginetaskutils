@@ -44,11 +44,14 @@ def _run(data, headers):
     except Exception, e:
         raise PermanentTaskFailure(e)
     else:
-        if passthroughargs.get("includeheaders"):
-            kwargs["headers"] = headers
-        func(*args, **kwargs)
+        if passthroughargs.get("_run_from_datastore"):
+            _run_from_datastore(headers, args[0])
+        else:
+            if passthroughargs.get("includeheaders"):
+                kwargs["headers"] = headers
+            func(*args, **kwargs)
 
-def _run_from_datastore(key, headers):
+def _run_from_datastore(headers, key):
     """Retrieves a task from the datastore and executes it.
     
     Args:
@@ -56,15 +59,16 @@ def _run_from_datastore(key, headers):
     Returns:
       The return value of the function invocation.
     """
-    entity = _TaskToRun.get(key)
-    if entity:
-        try:
-            _run(entity.data, headers)
-        except PermanentTaskFailure:
-            entity.delete()
-            raise
-        else:
-            entity.delete()
+    logging.debug("in _run_from_datastore")
+#     entity = _TaskToRun.get(key)
+#     if entity:
+#         try:
+#             _run(entity.data, headers)
+#         except PermanentTaskFailure:
+#             entity.delete()
+#             raise
+#         else:
+#             entity.delete()
 
 def task(f=None, **taskkwargs):
     if not f:
@@ -103,7 +107,7 @@ def task(f=None, **taskkwargs):
             return task.add(queue, transactional=transactional)
         except taskqueue.TaskTooLargeError:
             key = _TaskToRun(data=pickled, parent=parent).put()
-            rfspickled = yccloudpickle.dumps((_run_from_datastore, [key], {}))
+            rfspickled = yccloudpickle.dumps((None, [key], {}, {"_run_from_datastore": True}))
             task = taskqueue.Task(payload=rfspickled, **taskkwargscopy)
             return task.add(queue, transactional=transactional)
     return runtask

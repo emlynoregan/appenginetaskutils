@@ -1,12 +1,12 @@
 from model.account import Account
-from taskutils import shardedmap, futureshardedmap
+from taskutils import ndbshardedmap, futurendbshardedmap
 
 def DeleteAccountsWithShardedMapExperiment():
     def Go():
         def DeleteAccount(account):
             account.key.delete()
 
-        shardedmap(DeleteAccount, ndbquery = Account.query())            
+        ndbshardedmap(DeleteAccount, ndbquery = Account.query())            
     return "Delete Accounts With Sharded Map", Go
 
 def DeleteAccountsWithFutureShardedMapExperiment():
@@ -14,5 +14,5 @@ def DeleteAccountsWithFutureShardedMapExperiment():
         def DeleteAccount(account):
             account.key.delete()
 
-        return futureshardedmap(DeleteAccount, ndbquery = Account.query()).key
+        return futurendbshardedmap(DeleteAccount, ndbquery = Account.query()).key
     return "Delete Accounts With Future Sharded Map", Go
