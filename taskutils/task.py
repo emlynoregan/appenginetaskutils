@@ -9,8 +9,9 @@ import logging
 import functools
 
 _DEFAULT_FLASK_URL = "/_ah/task/<fmodule>/<ffunction>"
+_DEFAULT_FLASK_URL2 = "/_ah/task/<fname>"
 _DEFAULT_WEBAPP_URL = "/_ah/task/(.*)"
-_DEFAULT_ENQUEUE_URL = "/_ah/task/%s/%s"
+_DEFAULT_ENQUEUE_URL = "/_ah/task/%s"
 
 _TASKQUEUE_HEADERS = {"Content-Type": "application/octet-stream"}
 
@@ -86,10 +87,11 @@ def task(f=None, **taskkwargs):
     transactional = GetAndDelete("transactional", False)
     parent = GetAndDelete("parent")
     includeheaders = GetAndDelete("includeheaders", False)
+    logname = GetAndDelete("logname", "%s/%s" % (getattr(f, '__module__', 'none'), getattr(f, '__name__', 'none')))
 
     taskkwargscopy["headers"] = dict(_TASKQUEUE_HEADERS)
 
-    url = _DEFAULT_ENQUEUE_URL % (getattr(f, '__module__', 'none'), getattr(f, '__name__', 'none'))
+    url = _DEFAULT_ENQUEUE_URL % logname
     
     taskkwargscopy["url"] = url.lower()
     
@@ -168,4 +170,8 @@ def setuptasksforflask(flaskapp):
         _launch_task(flask.request.data, "%s/%s" % (fmodule, ffunction), flask.request.headers)
         return ""
 
+    @flaskapp.route(_DEFAULT_FLASK_URL2, methods=["POST"])
+    def taskhandler2(fname):
+        _launch_task(flask.request.data, fname, flask.request.headers)
+        return ""
 
