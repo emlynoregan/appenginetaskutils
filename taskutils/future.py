@@ -4,9 +4,10 @@ from taskutils import task
 from yccloudpickle import yccloudpickle
 import pickle
 import datetime
-# import logging
+import logging
 import uuid
 import json
+from taskutils.task import PermanentTaskFailure
 
 class FutureReadyForResult(Exception):
     pass
@@ -39,6 +40,14 @@ class _Future(ndb.model.Model):
     readyforresult = ndb.BooleanProperty()
     timeoutsec = ndb.IntegerProperty()
 
+    def get_taskkwargs(self, deletename = True):
+        taskkwargs = pickle.loads(self.taskkwargsser)
+        
+        if deletename and "name" in taskkwargs:
+            del taskkwargs["name"]
+            
+        return taskkwargs
+    
     def has_result(self):
         return bool(self.status)
     
@@ -194,7 +203,7 @@ class _Future(ndb.model.Model):
     def cancel(self):
         children = get_children(self.key)
         if children:
-            taskkwargs = pickle.loads(self.taskkwargsser)
+            taskkwargs = self.get_taskkwargs()
             
             @task(**taskkwargs)
             def cancelchild(child):
@@ -244,7 +253,7 @@ def UpdateResultF(futureobj):
     if not futureobj.status and futureobj.get_runtime() > datetime.timedelta(seconds = futureobj.timeoutsec):
         futureobj.set_failure(FutureTimedOutError("timeout"))
 
-    taskkwargs = pickle.loads(futureobj.taskkwargsser)
+    taskkwargs = futureobj.get_taskkwargs()
 
     @task(**taskkwargs)
     def UpdateChildren():
@@ -255,7 +264,7 @@ def UpdateResultF(futureobj):
 
 def OnProgressF(futureobj):
     if futureobj.parentkey:
-        taskkwargs = pickle.loads(futureobj.taskkwargsser)
+        taskkwargs = futureobj.get_taskkwargs()
       
     #     logging.debug("Enter OnProgressF: %s" % futureobj)
         @task(**taskkwargs)
@@ -288,16 +297,17 @@ def get_children(futurekey):
         return []
 
 def future(f=None, parentkey=None, includefuturekey=False, 
-           onsuccessf=None, onfailuref=None, onprogressf=None, weight = 1, timeoutsec = 1800, **taskkwargs):
+           onsuccessf=None, onfailuref=None, onprogressf=None, weight = 1, timeoutsec = 1800, maxretries = None, **taskkwargs):
     
     if not f:
         return functools.partial(future, 
             parentkey=parentkey, includefuturekey=includefuturekey, 
-            onsuccessf=onsuccessf, onfailuref=onfailuref, onprogressf=onprogressf, weight = weight, timeoutsec = timeoutsec,
+            onsuccessf=onsuccessf, onfailuref=onfailuref, onprogressf=onprogressf, weight = weight, timeoutsec = timeoutsec, maxretries = maxretries,
             **taskkwargs)
     
 #     logging.debug("includefuturekey: %s" % includefuturekey)
     
+    @ndb.transactional
     @functools.wraps(f)
     def runfuture(*args, **kwargs):
 #         logging.debug("runfuture: parentkey=%s" % parentkey)
@@ -320,7 +330,7 @@ def future(f=None, parentkey=None, includefuturekey=False,
             futureobj.onprogressfser = yccloudpickle.dumps(onprogressf)
         futureobj.taskkwargsser = yccloudpickle.dumps(taskkwargs)
         
-        futureobj.set_weight(weight if weight >= 1 else 1)
+#         futureobj.set_weight(weight if weight >= 1 else 1)
         
         futureobj.timeoutsec = timeoutsec
             
@@ -329,17 +339,33 @@ def future(f=None, parentkey=None, includefuturekey=False,
                 
         futurekey = futureobj.key
         
-        @task(**taskkwargs)
-        def _futurewrapper():
+        taskkwargscopy = dict(taskkwargs)
+        taskkwargscopy["transactional"] = True
+        
+        @task(includeheaders = True, **taskkwargs)
+        def _futurewrapper(headers):
+            if maxretries:
+                lretryCount = 0
+                try:
+                    lretryCount = int(headers.get("X-Appengine-Taskretrycount", 0)) if headers else 0 
+                except:
+                    logging.exception("Failed trying to get retry count, using 0")
+                    
+                if lretryCount > maxretries:
+                    raise PermanentTaskFailure("Too many retries of Future")
+            
+            futureobj = futurekey.get()
+            if futureobj:
+                futureobj.set_weight(weight if weight >= 1 else 1)
+            else:
+                raise Exception("Future not ready yet")
+
             try:
                 if includefuturekey:
                     result = f(*args, futurekey = futurekey, **kwargs)
                 else:
                     result = f(*args, **kwargs)
 
-                futureobj = futurekey.get()
-                if futureobj:
-                    futureobj.set_success_and_readyforesult(result)
             except FutureReadyForResult:
                 futureobj = futurekey.get()
                 if futureobj:
@@ -347,6 +373,11 @@ def future(f=None, parentkey=None, includefuturekey=False,
 
             except FutureNotReadyForResult:
                 pass
+            
+            else:
+                futureobj = futurekey.get()
+                if futureobj:
+                    futureobj.set_success_and_readyforesult(result)
                 
         _futurewrapper()
         

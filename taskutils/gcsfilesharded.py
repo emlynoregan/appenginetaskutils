@@ -3,6 +3,7 @@ import logging
 import cloudstorage as gcs
 from taskutils.future import future, FutureReadyForResult, get_children
 from google.appengine.ext import ndb
+from google.appengine.api import taskqueue
 
 def gcsfileshardedpagemap(pagemapf=None, gcspath=None, initialshards = 10, pagesize = 100, **taskkwargs):
     @task(**taskkwargs)
@@ -103,22 +104,29 @@ def futuregcsfileshardedpagemap(pagemapf=None, gcspath=None, pagesize=100, onsuc
             # open file at gcspath for read
             with gcs.open(gcspath) as gcsfile:
                 page, ranges = hwalk(gcsfile, pagesize, 2, startbyte, endbyte) 
-    
-            if pagemapf:
-                pagemapf(page)
 
             if ranges:
                 newweight = (weight - len(page)) / len(ranges)
                 for arange in ranges:
+                    taskname = "%s-%s-%s-fgcsfspm" % (futurekey.id(), arange[0], arange[1])
+    
                     def OnSuccessWithInitialAmount(childfuture):
                         OnSuccess(childfuture, arange, len(page))
-                         
-                    future(MapOverRange, parentkey=futurekey, includefuturekey = True, onsuccessf=OnSuccessWithInitialAmount, onfailuref=OnFailure, weight = newweight, **taskkwargs)(arange[0], arange[1], weight = newweight)
-                 
+
+                    try:
+                        future(MapOverRange, parentkey=futurekey, includefuturekey = True, onsuccessf=OnSuccessWithInitialAmount, onfailuref=OnFailure, weight = newweight, name = taskname, **taskkwargs)(arange[0], arange[1], weight = newweight)
+                    except taskqueue.TombstonedTaskError:
+                        logging.debug("skip adding task (already been run)")
+                    except taskqueue.TaskAlreadyExistsError:
+                        logging.debug("skip adding task (already running)")
+                
+            if pagemapf:
+                pagemapf(page)
+
+            if ranges:
                 raise FutureReadyForResult("still going")
             else:
                 return len(page)
-
         finally:
             logging.debug("Leave MapOverRange: %s, %s, %s" % (startbyte, endbyte, weight))
 
@@ -128,6 +136,7 @@ def futuregcsfileshardedpagemap(pagemapf=None, gcspath=None, pagesize=100, onsuc
     filesizebytes = filestat.st_size    
 
     return future(MapOverRange, includefuturekey = True, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, parentkey=parentkey, weight = weight, **taskkwargs)(0, filesizebytes, weight)
+
 
  
 def futuregcsfileshardedmap(mapf=None, gcspath=None, pagesize = 100, onsuccessf = None, onfailuref = None, onprogressf = None, weight= 1, parentkey = None, **taskkwargs):

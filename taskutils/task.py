@@ -130,12 +130,13 @@ _SKIP_HEADERS = {'x-appengine-country', 'x-appengine-queuename', 'x-appengine-ta
 def _launch_task(pickled, name, headers):
     try:
         # Add some task debug information.
-        dheaders = []
-        for key, value in headers.items():
-            k = key.lower()
-            if k.startswith("x-appengine-") and k not in _SKIP_HEADERS:
-                dheaders.append("%s:%s" % (key, value))
-        logging.debug(", ".join(dheaders))
+#         dheaders = []
+#         for key, value in headers.items():
+#             k = key.lower()
+#             if k.startswith("x-appengine-") and k not in _SKIP_HEADERS:
+#                 dheaders.append("%s:%s" % (key, value))
+#         logging.debug(", ".join(dheaders))
+        logging.debug(", ".join(["%s:%s" % (key, value) for key, value in headers.items()]))
         
         if not isFromTaskQueue(headers):
             raise PermanentTaskFailure('Detected an attempted XSRF attack: we are not executing from a task queue.')
