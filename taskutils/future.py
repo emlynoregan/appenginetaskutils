@@ -237,6 +237,7 @@ class _Future(ndb.model.Model):
         
         return {
             "key": str(self.key) if self.key else None,
+            "name": self.name,
             "level": level,
             "stored": str(self.stored) if self.stored else None,
             "updated": str(self.updated) if self.stored else None,
