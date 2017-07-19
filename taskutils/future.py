@@ -398,6 +398,13 @@ def future(f=None, parentkey=None, includefuturekey=False,
             except FutureNotReadyForResult:
                 pass
             
+            except PermanentTaskFailure, ptf:
+                try:
+                    futureobj = futurekey.get()
+                    if futureobj:
+                        futureobj.set_failure(ptf)
+                finally:
+                    raise ptf
             else:
                 futureobj = futurekey.get()
                 if futureobj:
