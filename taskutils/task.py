@@ -108,7 +108,10 @@ def task(f=None, **taskkwargs):
             task = taskqueue.Task(payload=pickled, **taskkwargscopy)
             return task.add(queue, transactional=transactional)
         except taskqueue.TaskTooLargeError:
-            key = _TaskToRun(data=pickled, parent=parent).put()
+            if parent:
+                key = _TaskToRun(data=pickled, parent=parent).put()
+            else:
+                key = _TaskToRun(data=pickled).put()
             rfspickled = yccloudpickle.dumps((None, [key], {}, {"_run_from_datastore": True}))
             task = taskqueue.Task(payload=rfspickled, **taskkwargscopy)
             return task.add(queue, transactional=transactional)

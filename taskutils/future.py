@@ -8,6 +8,8 @@ import logging
 import uuid
 import json
 from taskutils.task import PermanentTaskFailure
+import hashlib
+from google.appengine.api import taskqueue
 
 class FutureReadyForResult(Exception):
     pass
@@ -98,11 +100,11 @@ class _Future(ndb.model.Model):
             onfailuref(self)
                 
     def _callOnProgress(self):
-        OnProgressF(self)
-        
         onprogressf = pickle.loads(self.onprogressfser) if self.onprogressfser else None
         if onprogressf:
             onprogressf(self)
+        else:
+            OnProgressF(self)
             
     def get_runtime(self):
         if self.runtimesec:
@@ -298,6 +300,9 @@ def get_children(futurekey):
     else:
         return []
 
+def GenerateStableId(instring):
+    return hashlib.md5(instring).hexdigest()
+
 def future(f=None, parentkey=None, includefuturekey=False, 
            onsuccessf=None, onfailuref=None, onprogressf=None, weight = 1, timeoutsec = 1800, maxretries = None, futurename = None, **taskkwargs):
     
@@ -315,7 +320,22 @@ def future(f=None, parentkey=None, includefuturekey=False,
 #         logging.debug("runfuture: parentkey=%s" % parentkey)
 
         immediateancestorkey = ndb.Key(parentkey.kind(), parentkey.id()) if parentkey else None
-        newkey = ndb.Key(_Future, str(uuid.uuid4()), parent = immediateancestorkey)
+
+        taskkwargscopy = dict(taskkwargs)
+        if not "name" in taskkwargscopy:
+            # can only set transactional if we're not naming the task
+            taskkwargscopy["transactional"] = True
+            newfutureId = str(uuid.uuid4()) # id doesn't need to be stable
+        else:
+            # if we're using a named task, we need the key to remain stable in case of transactional retries
+            # what can happen is that the task is launched, but the transaction doesn't commit. 
+            # retries will then always fail to launch the task because it is already launched.
+            # therefore retries need to use the same future key id, so that once this transaction does commit,
+            # the earlier launch of the task will match up with it.
+            taskkwargscopy["transactional"] = False
+            newfutureId = GenerateStableId(taskkwargs["name"])
+            
+        newkey = ndb.Key(_Future, newfutureId, parent = immediateancestorkey)
         
 #         logging.debug("runfuture: ancestorkey=%s" % immediateancestorkey)
 #         logging.debug("runfuture: newkey=%s" % newkey)
@@ -344,10 +364,7 @@ def future(f=None, parentkey=None, includefuturekey=False,
         futurekey = futureobj.key
         logging.debug("outer, futurekey=%s" % futurekey)
         
-        taskkwargscopy = dict(taskkwargs)
-        taskkwargscopy["transactional"] = True
-        
-        @task(includeheaders = True, transactional = True, **taskkwargs)
+        @task(includeheaders = True, **taskkwargscopy)
         def _futurewrapper(headers):
             if maxretries:
                 lretryCount = 0
@@ -385,8 +402,15 @@ def future(f=None, parentkey=None, includefuturekey=False,
                 futureobj = futurekey.get()
                 if futureobj:
                     futureobj.set_success_and_readyforesult(result)
-                
-        _futurewrapper()
+
+        try:
+            # run the wrapper task, and if it fails due to a name clash just skip it (it was already kicked off by an earlier
+            # attempt to construct this future).
+            _futurewrapper()
+        except taskqueue.TombstonedTaskError:
+            logging.debug("skip adding task (already been run)")
+        except taskqueue.TaskAlreadyExistsError:
+            logging.debug("skip adding task (already running)")
         
         return futureobj
 

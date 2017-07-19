@@ -114,7 +114,7 @@ def futuregcsfileshardedpagemap(pagemapf=None, gcspath=None, pagesize=100, onsuc
                         OnSuccess(childfuture, arange, len(page))
 
                     try:
-                        future(MapOverRange, parentkey=futurekey, includefuturekey = True, onsuccessf=OnSuccessWithInitialAmount, onfailuref=OnFailure, weight = newweight, name = taskname, **taskkwargs)(arange[0], arange[1], weight = newweight)
+                        future(MapOverRange, parentkey=futurekey, includefuturekey = True, onsuccessf=OnSuccessWithInitialAmount, onfailuref=OnFailure, weight = newweight, futurename = taskname, **taskkwargs)(arange[0], arange[1], weight = newweight)
                     except taskqueue.TombstonedTaskError:
                         logging.debug("skip adding task (already been run)")
                     except taskqueue.TaskAlreadyExistsError:
