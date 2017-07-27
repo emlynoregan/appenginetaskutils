@@ -9,8 +9,9 @@ import logging
 import functools
 
 _DEFAULT_FLASK_URL = "/_ah/task/<fmodule>/<ffunction>"
+_DEFAULT_FLASK_URL2 = "/_ah/task/<fname>"
 _DEFAULT_WEBAPP_URL = "/_ah/task/(.*)"
-_DEFAULT_ENQUEUE_URL = "/_ah/task/%s/%s"
+_DEFAULT_ENQUEUE_URL = "/_ah/task/%s"
 
 _TASKQUEUE_HEADERS = {"Content-Type": "application/octet-stream"}
 
@@ -86,10 +87,11 @@ def task(f=None, **taskkwargs):
     transactional = GetAndDelete("transactional", False)
     parent = GetAndDelete("parent")
     includeheaders = GetAndDelete("includeheaders", False)
+    logname = GetAndDelete("logname", "%s/%s" % (getattr(f, '__module__', 'none'), getattr(f, '__name__', 'none')))
 
     taskkwargscopy["headers"] = dict(_TASKQUEUE_HEADERS)
 
-    url = _DEFAULT_ENQUEUE_URL % (getattr(f, '__module__', 'none'), getattr(f, '__name__', 'none'))
+    url = _DEFAULT_ENQUEUE_URL % logname
     
     taskkwargscopy["url"] = url.lower()
     
@@ -106,7 +108,10 @@ def task(f=None, **taskkwargs):
             task = taskqueue.Task(payload=pickled, **taskkwargscopy)
             return task.add(queue, transactional=transactional)
         except taskqueue.TaskTooLargeError:
-            key = _TaskToRun(data=pickled, parent=parent).put()
+            if parent:
+                key = _TaskToRun(data=pickled, parent=parent).put()
+            else:
+                key = _TaskToRun(data=pickled).put()
             rfspickled = yccloudpickle.dumps((None, [key], {}, {"_run_from_datastore": True}))
             task = taskqueue.Task(payload=rfspickled, **taskkwargscopy)
             return task.add(queue, transactional=transactional)
@@ -128,12 +133,13 @@ _SKIP_HEADERS = {'x-appengine-country', 'x-appengine-queuename', 'x-appengine-ta
 def _launch_task(pickled, name, headers):
     try:
         # Add some task debug information.
-        dheaders = []
-        for key, value in headers.items():
-            k = key.lower()
-            if k.startswith("x-appengine-") and k not in _SKIP_HEADERS:
-                dheaders.append("%s:%s" % (key, value))
-        logging.debug(", ".join(dheaders))
+#         dheaders = []
+#         for key, value in headers.items():
+#             k = key.lower()
+#             if k.startswith("x-appengine-") and k not in _SKIP_HEADERS:
+#                 dheaders.append("%s:%s" % (key, value))
+#         logging.debug(", ".join(dheaders))
+        logging.debug(", ".join(["%s:%s" % (key, value) for key, value in headers.items()]))
         
         if not isFromTaskQueue(headers):
             raise PermanentTaskFailure('Detected an attempted XSRF attack: we are not executing from a task queue.')
@@ -168,4 +174,8 @@ def setuptasksforflask(flaskapp):
         _launch_task(flask.request.data, "%s/%s" % (fmodule, ffunction), flask.request.headers)
         return ""
 
+    @flaskapp.route(_DEFAULT_FLASK_URL2, methods=["POST"])
+    def taskhandler2(fname):
+        _launch_task(flask.request.data, fname, flask.request.headers)
+        return ""
 

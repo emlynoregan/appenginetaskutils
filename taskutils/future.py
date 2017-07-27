@@ -4,9 +4,12 @@ from taskutils import task
 from yccloudpickle import yccloudpickle
 import pickle
 import datetime
-# import logging
+import logging
 import uuid
 import json
+from taskutils.task import PermanentTaskFailure
+import hashlib
+from google.appengine.api import taskqueue
 
 class FutureReadyForResult(Exception):
     pass
@@ -38,7 +41,16 @@ class _Future(ndb.model.Model):
     runtimesec = ndb.FloatProperty()
     readyforresult = ndb.BooleanProperty()
     timeoutsec = ndb.IntegerProperty()
+    name = ndb.StringProperty()
 
+    def get_taskkwargs(self, deletename = True):
+        taskkwargs = pickle.loads(self.taskkwargsser)
+        
+        if deletename and "name" in taskkwargs:
+            del taskkwargs["name"]
+            
+        return taskkwargs
+    
     def has_result(self):
         return bool(self.status)
     
@@ -88,11 +100,11 @@ class _Future(ndb.model.Model):
             onfailuref(self)
                 
     def _callOnProgress(self):
-        OnProgressF(self)
-        
         onprogressf = pickle.loads(self.onprogressfser) if self.onprogressfser else None
         if onprogressf:
             onprogressf(self)
+        else:
+            OnProgressF(self)
             
     def get_runtime(self):
         if self.runtimesec:
@@ -194,7 +206,7 @@ class _Future(ndb.model.Model):
     def cancel(self):
         children = get_children(self.key)
         if children:
-            taskkwargs = pickle.loads(self.taskkwargsser)
+            taskkwargs = self.get_taskkwargs()
             
             @task(**taskkwargs)
             def cancelchild(child):
@@ -205,13 +217,13 @@ class _Future(ndb.model.Model):
 
         self.set_failure(FutureCancelled("cancelled by caller"))
 
-    def to_dict(self, level=0, recursive = True):
+    def to_dict(self, level=0, maxlevel = 5, recursive = True):
 #         if not self.has_result():
 #             self.update_result()
 
         progressobj = self._get_progressobject()
                      
-        children = [child.to_dict(level = level + 1) for child in get_children(self.key)] if recursive else None
+        children = [child.to_dict(level = level + 1) for child in get_children(self.key)] if recursive and level+1 < maxlevel else None
         
         resultrep = None
         result = pickle.loads(self.resultser) if self.resultser else None
@@ -227,6 +239,7 @@ class _Future(ndb.model.Model):
         
         return {
             "key": str(self.key) if self.key else None,
+            "name": self.name,
             "level": level,
             "stored": str(self.stored) if self.stored else None,
             "updated": str(self.updated) if self.stored else None,
@@ -244,7 +257,7 @@ def UpdateResultF(futureobj):
     if not futureobj.status and futureobj.get_runtime() > datetime.timedelta(seconds = futureobj.timeoutsec):
         futureobj.set_failure(FutureTimedOutError("timeout"))
 
-    taskkwargs = pickle.loads(futureobj.taskkwargsser)
+    taskkwargs = futureobj.get_taskkwargs()
 
     @task(**taskkwargs)
     def UpdateChildren():
@@ -255,7 +268,7 @@ def UpdateResultF(futureobj):
 
 def OnProgressF(futureobj):
     if futureobj.parentkey:
-        taskkwargs = pickle.loads(futureobj.taskkwargsser)
+        taskkwargs = futureobj.get_taskkwargs()
       
     #     logging.debug("Enter OnProgressF: %s" % futureobj)
         @task(**taskkwargs)
@@ -287,23 +300,42 @@ def get_children(futurekey):
     else:
         return []
 
+def GenerateStableId(instring):
+    return hashlib.md5(instring).hexdigest()
+
 def future(f=None, parentkey=None, includefuturekey=False, 
-           onsuccessf=None, onfailuref=None, onprogressf=None, weight = 1, timeoutsec = 1800, **taskkwargs):
+           onsuccessf=None, onfailuref=None, onprogressf=None, weight = 1, timeoutsec = 1800, maxretries = None, futurename = None, **taskkwargs):
     
     if not f:
         return functools.partial(future, 
             parentkey=parentkey, includefuturekey=includefuturekey, 
-            onsuccessf=onsuccessf, onfailuref=onfailuref, onprogressf=onprogressf, weight = weight, timeoutsec = timeoutsec,
+            onsuccessf=onsuccessf, onfailuref=onfailuref, onprogressf=onprogressf, weight = weight, timeoutsec = timeoutsec, maxretries = maxretries, futurename = futurename,
             **taskkwargs)
     
 #     logging.debug("includefuturekey: %s" % includefuturekey)
     
+    @ndb.transactional
     @functools.wraps(f)
     def runfuture(*args, **kwargs):
 #         logging.debug("runfuture: parentkey=%s" % parentkey)
 
         immediateancestorkey = ndb.Key(parentkey.kind(), parentkey.id()) if parentkey else None
-        newkey = ndb.Key(_Future, str(uuid.uuid4()), parent = immediateancestorkey)
+
+        taskkwargscopy = dict(taskkwargs)
+        if not "name" in taskkwargscopy:
+            # can only set transactional if we're not naming the task
+            taskkwargscopy["transactional"] = True
+            newfutureId = str(uuid.uuid4()) # id doesn't need to be stable
+        else:
+            # if we're using a named task, we need the key to remain stable in case of transactional retries
+            # what can happen is that the task is launched, but the transaction doesn't commit. 
+            # retries will then always fail to launch the task because it is already launched.
+            # therefore retries need to use the same future key id, so that once this transaction does commit,
+            # the earlier launch of the task will match up with it.
+            taskkwargscopy["transactional"] = False
+            newfutureId = GenerateStableId(taskkwargs["name"])
+            
+        newkey = ndb.Key(_Future, newfutureId, parent = immediateancestorkey)
         
 #         logging.debug("runfuture: ancestorkey=%s" % immediateancestorkey)
 #         logging.debug("runfuture: newkey=%s" % newkey)
@@ -320,26 +352,44 @@ def future(f=None, parentkey=None, includefuturekey=False,
             futureobj.onprogressfser = yccloudpickle.dumps(onprogressf)
         futureobj.taskkwargsser = yccloudpickle.dumps(taskkwargs)
         
-        futureobj.set_weight(weight if weight >= 1 else 1)
+#         futureobj.set_weight(weight if weight >= 1 else 1)
         
         futureobj.timeoutsec = timeoutsec
+        
+        futureobj.name = futurename
             
         futureobj.put()
 #         logging.debug("runfuture: childkey=%s" % futureobj.key)
                 
         futurekey = futureobj.key
+        logging.debug("outer, futurekey=%s" % futurekey)
         
-        @task(**taskkwargs)
-        def _futurewrapper():
+        @task(includeheaders = True, **taskkwargscopy)
+        def _futurewrapper(headers):
+            if maxretries:
+                lretryCount = 0
+                try:
+                    lretryCount = int(headers.get("X-Appengine-Taskretrycount", 0)) if headers else 0 
+                except:
+                    logging.exception("Failed trying to get retry count, using 0")
+                    
+                if lretryCount > maxretries:
+                    raise PermanentTaskFailure("Too many retries of Future")
+            
+            
+            logging.debug("inner, futurekey=%s" % futurekey)
+            futureobj = futurekey.get()
+            if futureobj:
+                futureobj.set_weight(weight if weight >= 1 else 1)
+            else:
+                raise Exception("Future not ready yet")
+
             try:
                 if includefuturekey:
                     result = f(*args, futurekey = futurekey, **kwargs)
                 else:
                     result = f(*args, **kwargs)
 
-                futureobj = futurekey.get()
-                if futureobj:
-                    futureobj.set_success_and_readyforesult(result)
             except FutureReadyForResult:
                 futureobj = futurekey.get()
                 if futureobj:
@@ -347,8 +397,27 @@ def future(f=None, parentkey=None, includefuturekey=False,
 
             except FutureNotReadyForResult:
                 pass
-                
-        _futurewrapper()
+            
+            except PermanentTaskFailure, ptf:
+                try:
+                    futureobj = futurekey.get()
+                    if futureobj:
+                        futureobj.set_failure(ptf)
+                finally:
+                    raise ptf
+            else:
+                futureobj = futurekey.get()
+                if futureobj:
+                    futureobj.set_success_and_readyforesult(result)
+
+        try:
+            # run the wrapper task, and if it fails due to a name clash just skip it (it was already kicked off by an earlier
+            # attempt to construct this future).
+            _futurewrapper()
+        except taskqueue.TombstonedTaskError:
+            logging.debug("skip adding task (already been run)")
+        except taskqueue.TaskAlreadyExistsError:
+            logging.debug("skip adding task (already running)")
         
         return futureobj
 

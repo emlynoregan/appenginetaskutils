@@ -4,7 +4,7 @@ from taskutils import task
 import logging
 def MakeAccountsExperiment():
     def Go():
-        @task(includeheaders=True)
+        @task(includeheaders=True, logname="MakeAccountsExperiment")
         def MakeAccounts(numaccounts, headers):
             logging.debug(headers)
             logging.debug(numaccounts)
