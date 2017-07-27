@@ -2,10 +2,7 @@ from task import task
 import logging
 import cloudstorage as gcs
 from taskutils.future2 import future, FutureReadyForResult, GenerateOnAllChildSuccess #get_children
-    
-# from google.appengine.ext import ndb
-from google.appengine.api import taskqueue
-# from enum import value
+from taskutils.future2 import setlocalprogress, generatefuturepagemapf
 
 def gcsfileshardedpagemap(pagemapf=None, gcspath=None, initialshards = 10, pagesize = 100, **taskkwargs):
     @task(**taskkwargs)
@@ -100,35 +97,31 @@ def futuregcsfileshardedpagemap(pagemapf=None, gcspath=None, pagesize=100, onsuc
 #             except Exception, ex:
 #                 parentfuture.set_failure(ex)
     
-    def MapOverRange(startbyte, endbyte, weight, futurekey, **kwargs):
+    def MapOverRange(futurekey, startbyte, endbyte, weight, **kwargs):
         logging.debug("Enter MapOverRange: %s, %s, %s" % (startbyte, endbyte, weight))
         try:
             # open file at gcspath for read
             with gcs.open(gcspath) as gcsfile:
                 page, ranges = hwalk(gcsfile, pagesize, 2, startbyte, endbyte) 
 
+            lonallchildsuccessf = GenerateOnAllChildSuccess(futurekey, 0 if pagemapf else len(page), lambda a, b: a + b)
+                     
+            if pagemapf:
+                futurename = "pagemap %s of %s,%s" % (len(page), startbyte, endbyte)
+                future(pagemapf, parentkey=futurekey, futurename=futurename, onallchildsuccessf=lonallchildsuccessf, weight = len(page), **taskkwargs)(page)
+            else:
+                setlocalprogress(futurekey, len(page))
+
             if ranges:
                 newweight = (weight - len(page)) / len(ranges)
                 for arange in ranges:
-                    taskname = "%s-%s-%s-fgcsfspm" % (futurekey.id(), arange[0], arange[1])
-    
-#                     def OnSuccessWithInitialAmount(childfuture):
-#                         OnSuccess(childfuture, arange, len(page))
+                    futurename = "shard %s" % (arange)
 
-                    lonallchildsuccessf = GenerateOnAllChildSuccess(futurekey, len(page), lambda a, b: a + b)
+                    lonallchildsuccessf = GenerateOnAllChildSuccess(futurekey, 0, lambda a, b: a + b)
 
-                    try:
-                        future(MapOverRange, parentkey=futurekey, includefuturekey = True, onallchildsuccessf=lonallchildsuccessf, weight = newweight, futurename = taskname, **taskkwargs)(arange[0], arange[1], weight = newweight)
-#                         future(MapOverRange, parentkey=futurekey, includefuturekey = True, onsuccessf=OnSuccessWithInitialAmount, onfailuref=OnFailure, weight = newweight, futurename = taskname, **taskkwargs)(arange[0], arange[1], weight = newweight)
-                    except taskqueue.TombstonedTaskError:
-                        logging.debug("skip adding task (already been run)")
-                    except taskqueue.TaskAlreadyExistsError:
-                        logging.debug("skip adding task (already running)")
+                    future(MapOverRange, parentkey=futurekey, futurename=futurename, onallchildsuccessf=lonallchildsuccessf, weight = newweight, **taskkwargs)(arange[0], arange[1], weight = newweight)
                 
-            if pagemapf:
-                pagemapf(page)
-
-            if ranges:
+            if ranges or pagemapf:
                 raise FutureReadyForResult("still going")
             else:
                 return len(page)
@@ -140,25 +133,24 @@ def futuregcsfileshardedpagemap(pagemapf=None, gcspath=None, pagesize=100, onsuc
 
     filesizebytes = filestat.st_size    
 
-    return future(MapOverRange, includefuturekey = True, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, parentkey=parentkey, weight = weight, **taskkwargs)(0, filesizebytes, weight)
+    futurename = "top level 0 to %s" % (filesizebytes)
 
+    return future(MapOverRange, futurename=futurename, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, parentkey=parentkey, weight = weight, **taskkwargs)(0, filesizebytes, weight)
 
  
-def futuregcsfileshardedmap(mapf=None, gcspath=None, pagesize = 100, onsuccessf = None, onfailuref = None, onprogressf = None, weight= 1, parentkey = None, **taskkwargs):
-    @task(**taskkwargs)
-    def InvokeMap(line, **kwargs):
+def generategcsinvokemapf(mapf):
+    def InvokeMap(futurekey, line, **kwargs):
         logging.debug("Enter InvokeMap: %s" % line)
         try:
-            mapf(line, **kwargs)
+            return mapf(line, **kwargs)
         finally:
             logging.debug("Leave InvokeMap: %s" % line)
-     
-    def ProcessPage(lines):
-        for index, line in enumerate(lines):
-            logging.debug("Line #%s: %s" % (index, line))
-            InvokeMap(line)
- 
-    return futuregcsfileshardedpagemap(ProcessPage, gcspath, pagesize, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = None, parentkey=parentkey, weight=weight, **taskkwargs)
+    return InvokeMap
+
+def futuregcsfileshardedmap(mapf=None, gcspath=None, pagesize = 100, onsuccessf = None, onfailuref = None, onprogressf = None, weight= None, parentkey = None, **taskkwargs):
+    invokeMapF = generategcsinvokemapf(mapf)
+    pageMapF = generatefuturepagemapf(invokeMapF, **taskkwargs)
+    return futuregcsfileshardedpagemap(pageMapF, gcspath, pagesize, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, parentkey=parentkey, weight=weight, **taskkwargs)
 
 
 def hwalk(afile, pagesizeinlines, numranges, startbytes, endbytes):

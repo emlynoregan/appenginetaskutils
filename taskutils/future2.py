@@ -10,7 +10,6 @@ import json
 from taskutils.task import PermanentTaskFailure
 import hashlib
 from google.appengine.api import taskqueue
-from taskutils.debouncedtask import debouncedtask
 
 class FutureReadyForResult(Exception):
     pass
@@ -42,9 +41,12 @@ class _Future(ndb.model.Model):
     taskkwargsser = ndb.BlobProperty()
     status = ndb.StringProperty()
     runtimesec = ndb.FloatProperty()
+    initialised = ndb.BooleanProperty()
     readyforresult = ndb.BooleanProperty()
     timeoutsec = ndb.IntegerProperty()
     name = ndb.StringProperty()
+
+        
 
     def get_taskkwargs(self, deletename = True):
         taskkwargs = pickle.loads(self.taskkwargsser)
@@ -53,6 +55,15 @@ class _Future(ndb.model.Model):
             del taskkwargs["name"]
             
         return taskkwargs
+
+    def intask(self, f):
+        taskkwargs = self.get_taskkwargs()
+        
+        @task(**taskkwargs)
+        def dof(*args, **kwargs):
+            f(*args, **kwargs)
+        
+        return dof
     
     def has_result(self):
         return bool(self.status)
@@ -124,13 +135,16 @@ class _Future(ndb.model.Model):
         onsuccessf = pickle.loads(self.onsuccessfser) if self.onsuccessfser else None
         if onsuccessf:
             onsuccessf(self)
+            
         
         if self.onallchildsuccessfser:
             lparent = self.GetParent()
             if lparent and all_children_success(self.parentkey):
                 onallchildsuccessf = pickle.loads(self.onallchildsuccessfser) if self.onallchildsuccessfser else None
                 if onallchildsuccessf:
-                    onallchildsuccessf()
+                    def doonallchildsuccessf():
+                        onallchildsuccessf()
+                    self.intask(doonallchildsuccessf)()
             
     def _callOnFailure(self):
         onfailuref = pickle.loads(self.onfailurefser) if self.onfailurefser else None
@@ -173,6 +187,7 @@ class _Future(ndb.model.Model):
             didput = False
             if self.readyforresult and not self.status:
                 self.status = "success"
+                self.initialised = True
                 self.readyforresult = True
                 self.resultser = yccloudpickle.dumps(result)
                 self.runtimesec = self.get_runtime().total_seconds()
@@ -193,6 +208,7 @@ class _Future(ndb.model.Model):
             didput = False
             if not self.status:
                 self.status = "failure"
+                self.initialised = True
                 self.readyforresult = True
                 self.exceptionser = yccloudpickle.dumps(exception)
                 self.runtimesec = self.get_runtime().total_seconds()
@@ -227,6 +243,7 @@ class _Future(ndb.model.Model):
             didput = False
             if not self.status:
                 self.status = "success"
+                self.initialised = True
                 self.readyforresult = True
                 self.resultser = yccloudpickle.dumps(result)
                 self.runtimesec = self.get_runtime().total_seconds()
@@ -246,13 +263,26 @@ class _Future(ndb.model.Model):
             self = selfkey.get()
             didput = False
             if not self.readyforresult:
+                self.initialised = True
                 self.readyforresult = True
                 didput = True
                 self.put()
             return self, didput
         self, _ = set_status_transactional()
-#         if needcalls:
-#             self.update_result()
+
+    @ndb.non_transactional
+    def set_initialised(self):
+        selfkey = self.key
+        @ndb.transactional
+        def set_status_transactional():
+            self = selfkey.get()
+            didput = False
+            if not self.initialised:
+                self.initialised = True
+                didput = True
+                self.put()
+            return self, didput
+        self, _ = set_status_transactional()
 
     def _calculate_parent_progress(self):
         parentkey = self.parentkey
@@ -351,6 +381,7 @@ class _Future(ndb.model.Model):
         
         return {
             "key": lkey,
+            "id": self.key.id() if self.key else None,
             "name": self.name,
             "level": level,
             "stored": str(self.stored) if self.stored else None,
@@ -362,6 +393,7 @@ class _Future(ndb.model.Model):
             "localprogress": self.get_localprogress(progressobj),
             "progress": self.get_calculatedprogress(progressobj),
             "weight": self.get_weight(),
+            "initialised": self.initialised,
             "readyforresult": self.readyforresult,
             "zchildren": children
         }
@@ -389,8 +421,12 @@ def DefaultOnFailure(futureobj):
 
 def GenerateOnAllChildSuccess(parentkey, initialvalue, combineresultf):
     def OnAllChildSuccess():
+        logging.debug("Enter GenerateOnAllChildSuccess: %s" % parentkey)
         parentfuture = parentkey.get() if parentkey else None
         if parentfuture and not parentfuture.has_result():
+            if not parentfuture.initialised or not parentfuture.readyforresult:
+                raise Exception("Parent not initialised, retry")
+            
             @ndb.transactional()
             def get_children_trans():
                 return get_children(parentfuture.key)
@@ -609,7 +645,9 @@ def future(f=None, parentkey=None,
                     futureobj.set_readyforesult()
 
             except FutureNotReadyForResult:
-                pass
+                futureobj = futurekey.get()
+                if futureobj:
+                    futureobj.set_initialised()
             
             except PermanentTaskFailure, ptf:
                 try:

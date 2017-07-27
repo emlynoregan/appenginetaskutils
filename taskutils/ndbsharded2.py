@@ -2,7 +2,8 @@ from task import task, RetryTaskException
 from google.appengine.ext.key_range import KeyRange
 import logging
 from future2 import future, FutureReadyForResult, FutureNotReadyForResult
-from taskutils.future2 import GenerateOnAllChildSuccess, generatefuturepagemapf
+from taskutils.future2 import GenerateOnAllChildSuccess, generatefuturepagemapf,\
+    setlocalprogress
 
 def ndbshardedpagemap(pagemapf=None, ndbquery=None, initialshards = 10, pagesize = 100, **taskkwargs):
     @task(**taskkwargs)
@@ -79,26 +80,13 @@ def futurendbshardedpagemap(pagemapf=None, ndbquery=None, pagesize=100, onsucces
                  
                 keys, _, more = filteredquery.fetch_page(pagesize, keys_only=True)
 
-                def adder1(a, b):
-                    try:
-                        return a + b
-                    except:
-                        logging.exception("***GACK1***")
-                        return 0
-
-                def adder2(a, b):
-                    try:
-                        return a + b
-                    except:
-                        logging.exception("***GACK2***")
-                        return 0
-                        
-                lonallchildsuccessf1 = GenerateOnAllChildSuccess(futurekey, 0, adder1)#lambda a, b: a + b)
-                lonallchildsuccessf2 = GenerateOnAllChildSuccess(futurekey, 0, adder2)#lambda a, b: a + b)
+                lonallchildsuccessf = GenerateOnAllChildSuccess(futurekey, 0 if pagemapf else len(keys), lambda a, b: a + b)
                          
                 if pagemapf:
                     futurename = "pagemap %s of %s" % (len(keys), keyrange)
-                    future(pagemapf, parentkey=futurekey, futurename=futurename, onallchildsuccessf=lonallchildsuccessf1, weight = len(keys), **taskkwargs)(keys)
+                    future(pagemapf, parentkey=futurekey, futurename=futurename, onallchildsuccessf=lonallchildsuccessf, weight = len(keys), **taskkwargs)(keys)
+                else:
+                    setlocalprogress(futurekey, len(keys))
 
                 if more and keys:
                     newkeyrange = KeyRange(keys[-1], keyrange.key_end, keyrange.direction, False, keyrange.include_end)
@@ -107,7 +95,7 @@ def futurendbshardedpagemap(pagemapf=None, ndbquery=None, pagesize=100, onsucces
                     newweight = (weight / len(krlist)) - len(keys) if weight else None
                     for kr in krlist:
                         futurename = "shard %s" % (kr)
-                        future(MapOverRange, parentkey=futurekey, futurename=futurename, onallchildsuccessf = lonallchildsuccessf2, weight = newweight, **taskkwargs)(kr, weight = newweight)
+                        future(MapOverRange, parentkey=futurekey, futurename=futurename, onallchildsuccessf = lonallchildsuccessf, weight = newweight, **taskkwargs)(kr, weight = newweight)
 # 
                 if pagemapf or (more and keys):
 #                 if (more and keys):
@@ -152,7 +140,7 @@ def futurendbshardedpagemapwithcount(pagemapf=None, ndbquery=None, pagesize=100,
     @future(onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, parentkey = parentkey, weight=None, **taskkwargs)
     def countthenpagemap(futurekey):
         @future(parentkey=futurekey, futurename="placeholder for pagemap", weight = None, **taskkwargs)
-        def DoNothing():
+        def DoNothing(futurekey):
             raise FutureNotReadyForResult("waiting for count")
          
         placeholderfuture = DoNothing()
@@ -171,10 +159,10 @@ def futurendbshardedpagemapwithcount(pagemapf=None, ndbquery=None, pagesize=100,
             count = countfuture.get_result()
             placeholderfuture = placeholderfuturekey.get()
             if placeholderfuture:
-                placeholderfuture.set_weight(count)
+                placeholderfuture.set_weight(count*2)
                 future = futurekey.get()
                 if future:
-                    future.set_weight(count)
+                    future.set_weight(count*2)
                 futurendbshardedpagemap(pagemapf, ndbquery, pagesize, onsuccessf = OnPageMapSuccess, weight = count, parentkey = placeholderfuturekey, **taskkwargs)
 
                 # now that the second pass is actually constructed and running, we can let the placeholder accept a result.
