@@ -1,47 +1,34 @@
 from model.account import Account
-from taskutils import future
 import logging
-from taskutils.future import FutureReadyForResult
+from taskutils.future2 import future, FutureReadyForResult, GenerateOnAllChildSuccess,\
+    setlocalprogress
 
 def CountAccountsWithFutureExperiment():
     def Go():
-        def CountRemaining(cursor, futurekey):
+        def CountRemaining(futurekey, cursor):
+            logging.debug("Got here")
             accounts, cursor, kontinue = Account.query().fetch_page(
                 100, start_cursor = cursor
             )
-            
+
             numaccounts = len(accounts)
             
             if kontinue:
-                def OnSuccess(childfuture):
-                    parentfuture = futurekey.get()
-                    try:
-                        if childfuture and parentfuture and not parentfuture.has_result():
-                            result = numaccounts + childfuture.get_result()
-                            parentfuture.set_success(result)
-                    except Exception, ex:
-                        logging.exception(ex)
-                        raise ex
-#                     if childfuture:
-#                         childfuture.key.delete()
-                        
-                def OnFailure(childfuture):
-                    parentfuture = futurekey.get()
-                    if childfuture and parentfuture:
-                        try:
-                            childfuture.get_result() # should throw
-                        except Exception, ex:
-                            parentfuture.set_failure(ex)
-#                     if childfuture:
-#                         childfuture.key.delete()
-        
-                future(CountRemaining, parentkey=futurekey, includefuturekey=True, queue="background", onsuccessf=OnSuccess, onfailuref=OnFailure)(cursor)
+                lonallchildsuccessf = GenerateOnAllChildSuccess(futurekey, numaccounts, lambda a, b: a + b)
+                
+                future(CountRemaining, parentkey=futurekey, queue="background", onallchildsuccessf = lonallchildsuccessf)(cursor)
                                 
+                logging.debug("raising")
+
+            setlocalprogress(futurekey, numaccounts)
+            
+            if kontinue:
                 raise FutureReadyForResult("still calculating")
             else:
+                logging.debug("leaving")
                 return numaccounts
         
-        countfuture = future(CountRemaining, includefuturekey=True, queue="background")(None)
+        countfuture = future(CountRemaining, queue="background")(None)
         return countfuture.key
         
     return "Count Accounts With Future", Go

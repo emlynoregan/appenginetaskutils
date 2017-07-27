@@ -1,5 +1,6 @@
 from model.account import Account
-from taskutils import ndbshardedmap, futurendbshardedmap
+# from taskutils import ndbshardedmap, futurendbshardedmap
+from taskutils.ndbsharded2 import ndbshardedmap, futurendbshardedmap
 import logging
 
 def IncrementAccountsWithShardedMapExperiment():
@@ -19,9 +20,10 @@ def IncrementAccountsWithShardedMapExperiment():
 def IncrementAccountsWithFutureShardedMapExperiment():
     def Go():
         def AddFreeCredit(creditamount):
-            def IncrementBalance(account):
+            def IncrementBalance(futurekey, account):
                 account.balance += creditamount
                 account.put()
+                return 1
                 
             futureobj = futurendbshardedmap(IncrementBalance, Account.query(), queue="background")
             return futureobj.key
