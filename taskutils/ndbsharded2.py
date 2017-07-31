@@ -3,7 +3,7 @@ from google.appengine.ext.key_range import KeyRange
 import logging
 from future2 import future, FutureReadyForResult, FutureNotReadyForResult
 from taskutils.future2 import GenerateOnAllChildSuccess, generatefuturepagemapf,\
-    setlocalprogress
+    setlocalprogress, GetFutureAndCheckReady
 
 def ndbshardedpagemap(pagemapf=None, ndbquery=None, initialshards = 10, pagesize = 100, **taskkwargs):
     @task(**taskkwargs)
@@ -58,7 +58,7 @@ def ndbshardedmap(mapf=None, ndbquery=None, initialshards = 10, pagesize = 100, 
     ndbshardedpagemap(ProcessPage, ndbquery, initialshards, pagesize, **taskkwargs)
 
 
-def futurendbshardedpagemap(pagemapf=None, ndbquery=None, pagesize=100, onsuccessf=None, onfailuref=None, onprogressf = None, weight = None, parentkey=None, **taskkwargs):
+def futurendbshardedpagemap(pagemapf=None, ndbquery=None, pagesize=100, onsuccessf=None, onfailuref=None, onprogressf = None, initialresult = None, oncombineresultsf = None, weight = None, parentkey=None, **taskkwargs):
     kind = ndbquery.kind
  
     krlist = KeyRange.compute_split_points(kind, 5)
@@ -69,6 +69,9 @@ def futurendbshardedpagemap(pagemapf=None, ndbquery=None, pagesize=100, onsucces
     def dofuturendbshardedmap(futurekey):
         logging.debug(taskkwargs)
  
+        linitialresult = initialresult if not initialresult is None else 0
+        loncombineresultsf = oncombineresultsf if oncombineresultsf else lambda a, b: a + b
+    
         def MapOverRange(futurekey, keyrange, weight, **kwargs):
             logging.debug("Enter MapOverRange: %s" % keyrange)
             try:
@@ -84,11 +87,13 @@ def futurendbshardedpagemap(pagemapf=None, ndbquery=None, pagesize=100, onsucces
                          
                 if pagemapf:
                     futurename = "pagemap %s of %s" % (len(keys), keyrange)
+                    lonallchildsuccessf = GenerateOnAllChildSuccess(futurekey, linitialresult, loncombineresultsf)
                     future(pagemapf, parentkey=futurekey, futurename=futurename, onallchildsuccessf=lonallchildsuccessf, weight = len(keys), **taskkwargs)(keys)
                 else:
                     setlocalprogress(futurekey, len(keys))
 
                 if more and keys:
+                    lonallchildsuccessf = GenerateOnAllChildSuccess(futurekey, linitialresult if pagemapf else len(keys), loncombineresultsf)
                     newkeyrange = KeyRange(keys[-1], keyrange.key_end, keyrange.direction, False, keyrange.include_end)
                     krlist = newkeyrange.split_range()
                     logging.debug("krlist: %s" % krlist)
@@ -107,7 +112,7 @@ def futurendbshardedpagemap(pagemapf=None, ndbquery=None, pagesize=100, onsucces
                 logging.debug("Leave MapOverRange: %s" % keyrange)
   
         for kr in krlist:
-            lonallchildsuccessf = GenerateOnAllChildSuccess(futurekey, 0, lambda a, b: a + b)
+            lonallchildsuccessf = GenerateOnAllChildSuccess(futurekey, linitialresult, loncombineresultsf)
             
             futurename = "shard %s" % (kr)
 
@@ -131,12 +136,12 @@ def generateinvokemapf(mapf):
             logging.debug("Leave InvokeMap: %s" % key)
     return InvokeMap
 
-def futurendbshardedmap(mapf=None, ndbquery=None, pagesize = 100, onsuccessf = None, onfailuref = None, onprogressf = None, weight = None, parentkey = None, **taskkwargs):
+def futurendbshardedmap(mapf=None, ndbquery=None, pagesize = 100, onsuccessf = None, onfailuref = None, onprogressf = None, initialresult = None, oncombineresultsf = None, weight = None, parentkey = None, **taskkwargs):
     invokeMapF = generateinvokemapf(mapf)
-    pageMapF = generatefuturepagemapf(invokeMapF, **taskkwargs)
-    return futurendbshardedpagemap(pageMapF, ndbquery, pagesize, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, parentkey=parentkey, weight=weight, **taskkwargs)
+    pageMapF = generatefuturepagemapf(invokeMapF, initialresult, oncombineresultsf, **taskkwargs)
+    return futurendbshardedpagemap(pageMapF, ndbquery, pagesize, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, initialresult = initialresult, oncombineresultsf = oncombineresultsf, parentkey=parentkey, weight=weight, **taskkwargs)
 
-def futurendbshardedpagemapwithcount(pagemapf=None, ndbquery=None, pagesize=100, onsuccessf=None, onfailuref=None, onprogressf=None, parentkey = None, **taskkwargs):
+def futurendbshardedpagemapwithcount(pagemapf=None, ndbquery=None, pagesize=100, onsuccessf=None, onfailuref=None, onprogressf=None, initialresult = None, oncombineresultsf = None, parentkey = None, **taskkwargs):
     @future(onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, parentkey = parentkey, weight=None, **taskkwargs)
     def countthenpagemap(futurekey):
         @future(parentkey=futurekey, futurename="placeholder for pagemap", weight = None, **taskkwargs)
@@ -146,37 +151,36 @@ def futurendbshardedpagemapwithcount(pagemapf=None, ndbquery=None, pagesize=100,
         placeholderfuture = DoNothing()
         placeholderfuturekey = placeholderfuture.key
 
-        def OnPageMapSuccess(pagemapfuture):
+        def OnPageMapSuccess(pagemapfuturekey):
+            pagemapfuture = GetFutureAndCheckReady(pagemapfuturekey)
+            placeholderfuture = GetFutureAndCheckReady(placeholderfuturekey)
+            future = GetFutureAndCheckReady(futurekey)
             result = pagemapfuture.get_result()
-            placeholderfuture = placeholderfuturekey.get()
-            if placeholderfuture:
-                placeholderfuture.set_success(result)
-            future = futurekey.get()
-            if future:
-                future.set_success(result)
+            placeholderfuture.set_success(result)
+            future.set_success(result)
          
-        def OnCountSuccess(countfuture):
-            count = countfuture.get_result()
+        def OnCountSuccess(countfuturekey):
+            countfuture = GetFutureAndCheckReady(countfuturekey)
+            futureobj = GetFutureAndCheckReady(futurekey)
+            count = countfuture.get_result() 
             placeholderfuture = placeholderfuturekey.get()
             if placeholderfuture:
                 placeholderfuture.set_weight(count*2)
-                future = futurekey.get()
-                if future:
-                    future.set_weight(count*2)
+                futureobj.set_weight(count*2)
                 futurendbshardedpagemap(pagemapf, ndbquery, pagesize, onsuccessf = OnPageMapSuccess, weight = count, parentkey = placeholderfuturekey, **taskkwargs)
 
                 # now that the second pass is actually constructed and running, we can let the placeholder accept a result.
                 placeholderfuture.set_readyforesult()
          
-        futurendbshardedpagemap(None, ndbquery, pagesize, onsuccessf = OnCountSuccess, parentkey = futurekey, weight = None, **taskkwargs)
+        futurendbshardedpagemap(None, ndbquery, pagesize, onsuccessf = OnCountSuccess, parentkey = futurekey, initialresult = initialresult, oncombineresultsf = oncombineresultsf, weight = None, **taskkwargs)
         
         raise FutureReadyForResult("still going")
     return countthenpagemap()
 
-def futurendbshardedmapwithcount(mapf=None, ndbquery=None, pagesize = 100, onsuccessf = None, onfailuref = None, onprogressf = None, weight = None, parentkey = None, **taskkwargs):
+def futurendbshardedmapwithcount(mapf=None, ndbquery=None, pagesize = 100, onsuccessf = None, onfailuref = None, onprogressf = None, initialresult = None, oncombineresultsf = None, weight = None, parentkey = None, **taskkwargs):
     invokeMapF = generateinvokemapf(mapf)
-    pageMapF = generatefuturepagemapf(invokeMapF, **taskkwargs)
-    return futurendbshardedpagemapwithcount(pageMapF, ndbquery, pagesize, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, parentkey=parentkey, **taskkwargs)
+    pageMapF = generatefuturepagemapf(invokeMapF, initialresult, oncombineresultsf, **taskkwargs)
+    return futurendbshardedpagemapwithcount(pageMapF, ndbquery, pagesize, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, initialresult = initialresult, oncombineresultsf = oncombineresultsf, parentkey=parentkey, **taskkwargs)
 
 def _fixkeyend(keyrange, kind):
     if keyrange.key_start and not keyrange.key_end:
