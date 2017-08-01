@@ -1,5 +1,5 @@
 from model.account import Account
-from taskutils import ndbshardedmap, futurendbshardedmap
+from taskutils.ndbsharded import ndbshardedmap, futurendbshardedmap
 
 def DeleteAccountsWithShardedMapExperiment():
     def Go():

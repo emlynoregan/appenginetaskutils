@@ -1,6 +1,6 @@
 from model.account import Account
 # from taskutils import ndbshardedmap, futurendbshardedmap
-from taskutils.ndbsharded2 import ndbshardedmap, futurendbshardedmap
+from taskutils.ndbsharded import ndbshardedmap, futurendbshardedmap
 import logging
 
 def IncrementAccountsWithShardedMapExperiment():

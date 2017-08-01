@@ -1,6 +1,6 @@
 from model.account import Account
 import logging
-from taskutils.future2 import future, FutureReadyForResult, GenerateOnAllChildSuccess,\
+from taskutils.future import future, FutureReadyForResult, GenerateOnAllChildSuccess,\
     setlocalprogress
 
 def CountAccountsWithFutureExperiment():
