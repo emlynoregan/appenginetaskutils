@@ -60,9 +60,12 @@ class _Future(ndb.model.Model):
 
     def intask(self, nameprefix, f, *args, **kwargs):
         taskkwargs = self.get_taskkwargs()
-        
-        name = "%s-%s" % (nameprefix, self.key.id())
-        taskkwargs["name"] = name
+
+        if nameprefix:
+            name = "%s-%s" % (nameprefix, self.key.id())
+            taskkwargs["name"] = name
+        elif taskkwargs.get("name"):
+            del taskkwargs["name"]
         taskkwargs["transactional"] = False
         
         @task(**taskkwargs)
@@ -175,7 +178,7 @@ class _Future(ndb.model.Model):
         if onprogressf:
             def doonprogressf():
                 onprogressf(self.key)
-            self.intask("onprogress", doonprogressf)
+            self.intask(None, doonprogressf)
             
     def get_runtime(self):
         if self.runtimesec:
