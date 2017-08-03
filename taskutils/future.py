@@ -75,7 +75,7 @@ class _Future(ndb.model.Model):
         try:
             # run the wrapper task, and if it fails due to a name clash just skip it (it was already kicked off by an earlier
             # attempt to construct this future).
-            logging.debug("about to run task %s" % name)
+#             logging.debug("about to run task %s" % name)
             dof()
         except taskqueue.TombstonedTaskError:
             logging.debug("skip adding task %s (already been run)" % name)
@@ -717,7 +717,7 @@ def future(f=None, parentkey=None,
             else:
                 break # do we need this? Don't think so
 
-    logging.debug("fffff")
+    logging.debug("about to call runfuture")
     return runfuture
 
 def GetFutureAndCheckReady(futurekey):

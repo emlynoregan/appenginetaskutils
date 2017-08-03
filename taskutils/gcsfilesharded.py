@@ -45,7 +45,7 @@ def gcsfileshardedmap(mapf=None, gcspath=None, initialshards = 10, pagesize = 10
     gcsfileshardedpagemap(ProcessPage, gcspath, initialshards, pagesize, **taskkwargs)
 
 
-def futuregcsfileshardedpagemap(pagemapf=None, gcspath=None, pagesize=100, onsuccessf=None, onfailuref=None, onprogressf = None, initialresult = None, oncombineresultsf = None, weight = 1, parentkey=None, **taskkwargs):
+def futuregcsfileshardedpagemap(pagemapf=None, gcspath=None, pagesize=100, onsuccessf=None, onfailuref=None, onprogressf = None, onallchildsuccessf = None, initialresult = None, oncombineresultsf = None, weight = 1, parentkey=None, **taskkwargs):
     def MapOverRange(futurekey, startbyte, endbyte, weight, **kwargs):
         logging.debug("Enter MapOverRange: %s, %s, %s" % (startbyte, endbyte, weight))
 
@@ -87,7 +87,10 @@ def futuregcsfileshardedpagemap(pagemapf=None, gcspath=None, pagesize=100, onsuc
 
     futurename = "top level 0 to %s" % (filesizebytes)
 
-    return future(MapOverRange, futurename=futurename, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, parentkey=parentkey, weight = weight, **taskkwargs)(0, filesizebytes, weight)
+    taskkwargscopy = dict(taskkwargs)
+    taskkwargscopy["futurename"] = taskkwargscopy.get("futurename", futurename)
+
+    return future(MapOverRange, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, onallchildsuccessf=onallchildsuccessf, parentkey=parentkey, weight = weight, **taskkwargscopy)(0, filesizebytes, weight)
 
  
 def generategcsinvokemapf(mapf):
@@ -99,10 +102,10 @@ def generategcsinvokemapf(mapf):
             logging.debug("Leave InvokeMap: %s" % line)
     return InvokeMap
 
-def futuregcsfileshardedmap(mapf=None, gcspath=None, pagesize = 100, onsuccessf = None, onfailuref = None, onprogressf = None, initialresult = None, oncombineresultsf = None, weight= None, parentkey = None, **taskkwargs):
+def futuregcsfileshardedmap(mapf=None, gcspath=None, pagesize = 100, onsuccessf = None, onfailuref = None, onprogressf = None, onallchildsuccessf=None, initialresult = None, oncombineresultsf = None, weight= None, parentkey = None, **taskkwargs):
     invokeMapF = generategcsinvokemapf(mapf)
     pageMapF = generatefuturepagemapf(invokeMapF, initialresult, oncombineresultsf **taskkwargs)
-    return futuregcsfileshardedpagemap(pageMapF, gcspath, pagesize, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, initialresult = initialresult, oncombineresultsf = oncombineresultsf, parentkey=parentkey, weight=weight, **taskkwargs)
+    return futuregcsfileshardedpagemap(pageMapF, gcspath, pagesize, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, onallchildsuccessf=onallchildsuccessf, initialresult = initialresult, oncombineresultsf = oncombineresultsf, parentkey=parentkey, weight=weight, **taskkwargs)
 
 
 def hwalk(afile, pagesizeinlines, numranges, startbytes, endbytes):

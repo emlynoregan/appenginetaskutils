@@ -58,14 +58,14 @@ def ndbshardedmap(mapf=None, ndbquery=None, initialshards = 10, pagesize = 100, 
     ndbshardedpagemap(ProcessPage, ndbquery, initialshards, pagesize, **taskkwargs)
 
 
-def futurendbshardedpagemap(pagemapf=None, ndbquery=None, pagesize=100, onsuccessf=None, onfailuref=None, onprogressf = None, initialresult = None, oncombineresultsf = None, weight = None, parentkey=None, **taskkwargs):
+def futurendbshardedpagemap(pagemapf=None, ndbquery=None, pagesize=100, onsuccessf=None, onfailuref=None, onprogressf = None, onallchildsuccessf = None, initialresult = None, oncombineresultsf = None, weight = None, parentkey=None, **taskkwargs):
     kind = ndbquery.kind
  
     krlist = KeyRange.compute_split_points(kind, 5)
     logging.debug("first krlist: %s" % krlist)
     logging.debug(taskkwargs)
  
-    @future(onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, parentkey=parentkey, weight = weight, **taskkwargs)
+    @future(onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, onallchildsuccessf=onallchildsuccessf, parentkey=parentkey, weight = weight, **taskkwargs)
     def dofuturendbshardedmap(futurekey):
         logging.debug(taskkwargs)
  
@@ -136,13 +136,13 @@ def generateinvokemapf(mapf):
             logging.debug("Leave InvokeMap: %s" % key)
     return InvokeMap
 
-def futurendbshardedmap(mapf=None, ndbquery=None, pagesize = 100, onsuccessf = None, onfailuref = None, onprogressf = None, initialresult = None, oncombineresultsf = None, weight = None, parentkey = None, **taskkwargs):
+def futurendbshardedmap(mapf=None, ndbquery=None, pagesize = 100, onsuccessf = None, onfailuref = None, onprogressf = None, onallchildsuccessf = None, initialresult = None, oncombineresultsf = None, weight = None, parentkey = None, **taskkwargs):
     invokeMapF = generateinvokemapf(mapf)
     pageMapF = generatefuturepagemapf(invokeMapF, initialresult, oncombineresultsf, **taskkwargs)
-    return futurendbshardedpagemap(pageMapF, ndbquery, pagesize, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, initialresult = initialresult, oncombineresultsf = oncombineresultsf, parentkey=parentkey, weight=weight, **taskkwargs)
+    return futurendbshardedpagemap(pageMapF, ndbquery, pagesize, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, onallchildsuccessf = onallchildsuccessf, initialresult = initialresult, oncombineresultsf = oncombineresultsf, parentkey=parentkey, weight=weight, **taskkwargs)
 
-def futurendbshardedpagemapwithcount(pagemapf=None, ndbquery=None, pagesize=100, onsuccessf=None, onfailuref=None, onprogressf=None, initialresult = None, oncombineresultsf = None, parentkey = None, **taskkwargs):
-    @future(onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, parentkey = parentkey, weight=None, **taskkwargs)
+def futurendbshardedpagemapwithcount(pagemapf=None, ndbquery=None, pagesize=100, onsuccessf=None, onfailuref=None, onprogressf=None, onallchildsuccessf=None, initialresult = None, oncombineresultsf = None, parentkey = None, **taskkwargs):
+    @future(onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, onallchildsuccessf=onallchildsuccessf, parentkey = parentkey, weight=None, **taskkwargs)
     def countthenpagemap(futurekey):
         @future(parentkey=futurekey, futurename="placeholder for pagemap", weight = None, **taskkwargs)
         def DoNothing(futurekey):
@@ -177,10 +177,10 @@ def futurendbshardedpagemapwithcount(pagemapf=None, ndbquery=None, pagesize=100,
         raise FutureReadyForResult("still going")
     return countthenpagemap()
 
-def futurendbshardedmapwithcount(mapf=None, ndbquery=None, pagesize = 100, onsuccessf = None, onfailuref = None, onprogressf = None, initialresult = None, oncombineresultsf = None, weight = None, parentkey = None, **taskkwargs):
+def futurendbshardedmapwithcount(mapf=None, ndbquery=None, pagesize = 100, onsuccessf = None, onfailuref = None, onprogressf = None, onallchildsuccessf = None, initialresult = None, oncombineresultsf = None, weight = None, parentkey = None, **taskkwargs):
     invokeMapF = generateinvokemapf(mapf)
     pageMapF = generatefuturepagemapf(invokeMapF, initialresult, oncombineresultsf, **taskkwargs)
-    return futurendbshardedpagemapwithcount(pageMapF, ndbquery, pagesize, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, initialresult = initialresult, oncombineresultsf = oncombineresultsf, parentkey=parentkey, **taskkwargs)
+    return futurendbshardedpagemapwithcount(pageMapF, ndbquery, pagesize, onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, onallchildsuccessf=onallchildsuccessf, initialresult = initialresult, oncombineresultsf = oncombineresultsf, parentkey=parentkey, **taskkwargs)
 
 def _fixkeyend(keyrange, kind):
     if keyrange.key_start and not keyrange.key_end:
