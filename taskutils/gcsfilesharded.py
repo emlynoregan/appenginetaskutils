@@ -59,19 +59,19 @@ def futuregcsfileshardedpagemap(pagemapf=None, gcspath=None, pagesize=100, onsuc
 
             if pagemapf:
                 lonallchildsuccessf = GenerateOnAllChildSuccess(futurekey, linitialresult, loncombineresultsf)
-                futurename = "pagemap %s of %s,%s" % (len(page), startbyte, endbyte)
-                future(pagemapf, parentkey=futurekey, futurename=futurename, onallchildsuccessf=lonallchildsuccessf, weight = len(page), **taskkwargs)(page)
+                taskkwargs["futurename"] = "pagemap %s of %s,%s" % (len(page), startbyte, endbyte)
+                future(pagemapf, parentkey=futurekey, onallchildsuccessf=lonallchildsuccessf, weight = len(page), **taskkwargs)(page)
             else:
                 setlocalprogress(futurekey, len(page))
 
             if ranges:
                 newweight = (weight - len(page)) / len(ranges)
                 for arange in ranges:
-                    futurename = "shard %s" % (arange)
+                    taskkwargs["futurename"] = "shard %s" % (arange)
 
                     lonallchildsuccessf = GenerateOnAllChildSuccess(futurekey, linitialresult if pagemapf else len(page), loncombineresultsf)
 
-                    future(MapOverRange, parentkey=futurekey, futurename=futurename, onallchildsuccessf=lonallchildsuccessf, weight = newweight, **taskkwargs)(arange[0], arange[1], weight = newweight)
+                    future(MapOverRange, parentkey=futurekey, onallchildsuccessf=lonallchildsuccessf, weight = newweight, **taskkwargs)(arange[0], arange[1], weight = newweight)
                 
             if ranges or pagemapf:
                 raise FutureReadyForResult("still going")
