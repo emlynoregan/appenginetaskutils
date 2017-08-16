@@ -37,16 +37,18 @@ def ndbshardedpagemap(pagemapf=None, ndbquery=None, initialshards = 10, pagesize
     for kr in krlist:
         MapOverRange(kr)
 
-def ndbshardedmap(mapf=None, ndbquery=None, initialshards = 10, pagesize = 100, **taskkwargs):
+def ndbshardedmap(mapf=None, ndbquery=None, initialshards = 10, pagesize = 100, skipmissing = False, **taskkwargs):
     @task(**taskkwargs)
     def InvokeMap(key, **kwargs):
         logging.debug("Enter InvokeMap: %s" % key)
         try:
             obj = key.get()
             if not obj:
-                raise RetryTaskException("couldn't get object for key %s" % key)
-    
-            mapf(obj, **kwargs)
+                if not skipmissing:
+                    raise RetryTaskException("couldn't get object for key %s" % key)
+                # else just skip
+            else:
+                mapf(obj, **kwargs)
         finally:
             logging.debug("Leave InvokeMap: %s" % key)
     

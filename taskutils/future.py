@@ -442,7 +442,7 @@ def DefaultOnFailure(futurekey):
         except Exception, ex:
             parentfutureobj.set_failure(ex)
 
-def GenerateOnAllChildSuccess(parentkey, initialvalue, combineresultf):
+def GenerateOnAllChildSuccess(parentkey, initialvalue, combineresultf, failonerror=True):
     def OnAllChildSuccess():
         logging.debug("Enter GenerateOnAllChildSuccess: %s" % parentkey)
         parentfuture = parentkey.get() if parentkey else None
@@ -478,7 +478,10 @@ def GenerateOnAllChildSuccess(parentkey, initialvalue, combineresultf):
                          
                 if error:
                     logging.warning("Internal error, child has error in OnAllChildSuccess: %s" % error)
-                    parentfuture.set_failure(error)
+                    if failonerror:
+                        parentfuture.set_failure(error)
+                    else:
+                        raise error
                 elif finished:
                     logging.debug("result: %s" % result)
                     parentfuture.set_success(result)#(result, initialamount, keyrange))
@@ -726,3 +729,46 @@ def GetFutureAndCheckReady(futurekey):
         raise Exception("Future not ready for result, retry")
     return futureobj
 
+def futuresequence(fseq, parentkey = None, onsuccessf=None, onfailuref=None, onallchildsuccessf=None, onprogressf=None, weight=None, timeoutsec=1800, maxretries=None, futurenameprefix=None, **taskkwargs):
+    flist = list(fseq)
+     
+    taskkwargs["futurename"] = "%s (top level)" % futurenameprefix if futurenameprefix else "-"
+     
+    @future(parentkey = parentkey, onsuccessf = onsuccessf, onfailuref = onfailuref, onallchildsuccessf=onallchildsuccessf, onprogressf = onprogressf, weight=weight, timeoutsec=timeoutsec, maxretries=maxretries, **taskkwargs)
+    def toplevel(futurekey, *args, **kwargs):
+         
+        def childonsuccessforindex(index):
+            def childonsuccess(childfuturekey):
+                logging.debug("Enter childonsuccess")
+                childfuture = GetFutureAndCheckReady(childfuturekey)
+                 
+                taskkwargs["futurename"] = "%s [%s]" % (futurenameprefix if futurenameprefix else "-", index)
+ 
+                try:    
+                    result = childfuture.get_result()
+                except Exception, ex:
+                    toplevelfuture = futurekey.get()
+                    if toplevelfuture:
+                        toplevelfuture.set_failure(ex)
+                    else:
+                        raise Exception("Can't load toplevel future for failure")
+                else:
+                    islast = (index == len(flist))
+                     
+                    if islast:
+                        toplevelfuture = futurekey.get()
+                        if toplevelfuture:
+                            toplevelfuture.set_success_and_readyforesult(result)
+                        else:
+                            raise Exception("Can't load toplevel future for success")
+                    else:
+                        future(flist[index], parentkey=futurekey, onsuccessf=childonsuccessforindex(index+1), weight=weight/len(flist) if weight else None, timeoutsec=timeoutsec, maxretries=maxretries, **taskkwargs)(result)
+             
+            return childonsuccess
+ 
+        taskkwargs["futurename"] = "%s [0]" % (futurenameprefix if futurenameprefix else "-")
+        future(flist[0], parentkey=futurekey, onsuccessf=childonsuccessforindex(1), weight=weight/len(flist) if weight else None, timeoutsec=timeoutsec, maxretries=maxretries, **taskkwargs)()
+                 
+        raise FutureNotReadyForResult("sequence started")
+ 
+    return toplevel
