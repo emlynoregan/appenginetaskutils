@@ -5,6 +5,7 @@ from future import future, FutureReadyForResult, GenerateOnAllChildSuccess #get_
 from future import setlocalprogress, generatefuturepagemapf
 from google.cloud import storage  #@UnresolvedImport
 from taskutils.future import GenerateStableId
+from google.appengine.ext.deferred.deferred import PermanentTaskFailure
 
 def gcsfileshardedpagemap(pagemapf=None, gcspath=None, initialshards = 10, pagesize = 100, **taskkwargs):
     @task(**taskkwargs)
@@ -113,6 +114,9 @@ def futuregcsfileshardedmap(mapf=None, gcspath=None, pagesize = 100, onsuccessf 
 def futuregcscompose(gcsbucket=None, gcssourceprefix=None, gcstargetprefix=None, gcstargetfilename="output.txt", onsuccessf=None, onfailuref=None, onprogressf = None, initialresult = None, oncombineresultsf = None, weight = None, parentkey=None, **taskkwargs):
     numgcsfiles = len(list(listbucket(gcsbucket, gcssourceprefix)))
     
+    if not numgcsfiles:
+        return None
+        
     def GCSCombineToTarget(futurekey, startindex, finishindex, istop, **kwargs):
         logging.debug("Enter GCSCombineToTarget: %s, %s" % (startindex, finishindex))
         try:
