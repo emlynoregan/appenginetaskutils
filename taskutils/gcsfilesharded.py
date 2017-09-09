@@ -176,7 +176,8 @@ def futuregcscompose(gcsbucket=None, gcssourceprefix=None, gcstargetprefix=None,
                 raise FutureReadyForResult()
             else:
                 lblobs = list(listbucket(gcsbucket, gcssourceprefix))[startindex:finishindex]
-                lfilename = "%s/%s-%s-%s" % (gcstargetprefix, "composed", startindex, finishindex)
+                lfilename = "%s/%s" % (gcstargetprefix, gcstargetfilename if istop else "composed-%s-%s" % (startindex, finishindex))
+#                 lfilename = "%s/%s-%s-%s" % (gcstargetprefix, "composed", startindex, finishindex)
                 retval = composeblobs(gcsbucket, lfilename, lblobs)
                 return retval
         finally:

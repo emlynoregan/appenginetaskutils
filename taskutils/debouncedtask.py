@@ -24,7 +24,7 @@ def debouncedtask(f=None, initsec = 0, repeatsec = 10, debouncename = None, **ta
         logging.debug("enter rundebouncedtask")
         retval = None
         client = memcache.Client()
-        cachekey = "dt%s" % (debouncename if debouncename else GenerateStableId(yccloudpickle.dumps(f)))
+        cachekey = "dt%s" % (debouncename if debouncename else GenerateStableId(yccloudpickle.dumps((f, args, kwargs))))
         logging.debug("cachekey: %s" % cachekey)
         eta = client.gets(cachekey)
         logging.debug("eta: %s" % eta)

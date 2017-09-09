@@ -732,54 +732,70 @@ def GetFutureAndCheckReady(futurekey):
 # fsf = futuresequencefunction
 # different from future function because it has a "results" argument, a list.
 def futuresequence(fsfseq, parentkey = None, onsuccessf=None, onfailuref=None, onallchildsuccessf=None, onprogressf=None, weight=None, timeoutsec=1800, maxretries=None, futurenameprefix=None, **taskkwargs):
+    logging.debug("Enter futuresequence: %s" % len(fsfseq))
+    
     flist = list(fsfseq)
      
     taskkwargs["futurename"] = "%s (top level)" % futurenameprefix if futurenameprefix else "sequence"
      
     @future(parentkey = parentkey, onsuccessf = onsuccessf, onfailuref = onfailuref, onallchildsuccessf=onallchildsuccessf, onprogressf = onprogressf, weight=weight, timeoutsec=timeoutsec, maxretries=maxretries, **taskkwargs)
     def toplevel(futurekey, *args, **kwargs):
+        logging.debug("Enter futuresequence.toplevel: %s" % futurekey)
         def childonsuccessforindex(index, results):
+            logging.debug("Enter childonsuccessforindex: %s, %s, %s" % (futurekey, index, json.dumps(results, indent=2)))
             def childonsuccess(childfuturekey):
-                logging.debug("Enter childonsuccess")
-                childfuture = GetFutureAndCheckReady(childfuturekey)
-                 
-                try:    
-                    result = childfuture.get_result()
-                except Exception, ex:
-                    toplevelfuture = futurekey.get()
-                    if toplevelfuture:
-                        toplevelfuture.set_failure(ex)
-                    else:
-                        raise Exception("Can't load toplevel future for failure")
-                else:
-                    newresults = results + [result]
-                    islast = (index == (len(flist) - 1))
+                logging.debug("Enter childonsuccess: %s, %s, %s" % (futurekey, index, childfuturekey))
+                logging.debug("results: %s" % json.dumps(results, indent=2))
+                try:
+                    childfuture = GetFutureAndCheckReady(childfuturekey)
                      
-                    if islast:
+                    try:    
+                        result = childfuture.get_result()
+                    except Exception, ex:
                         toplevelfuture = futurekey.get()
                         if toplevelfuture:
-                            toplevelfuture.set_success_and_readyforesult(newresults)
+                            toplevelfuture.set_failure(ex)
                         else:
-                            raise Exception("Can't load toplevel future for success")
+                            raise Exception("Can't load toplevel future for failure")
                     else:
-                        taskkwargs["futurename"] = "%s [%s]" % (futurenameprefix if futurenameprefix else "-", index+1)
-                        future(flist[index+1], parentkey=futurekey, onsuccessf=childonsuccessforindex(index+1, newresults), weight=weight/len(flist) if weight else None, timeoutsec=timeoutsec, maxretries=maxretries, **taskkwargs)(newresults)
+                        logging.debug("result: %s" % json.dumps(result, indent=2))
+                        newresults = results + [result]
+                        islast = (index == (len(flist) - 1))
+                         
+                        if islast:
+                            logging.debug("islast")
+                            toplevelfuture = futurekey.get()
+                            if toplevelfuture:
+                                logging.debug("setting top level success")
+                                toplevelfuture.set_success_and_readyforesult(newresults)
+                            else:
+                                raise Exception("Can't load toplevel future for success")
+                        else:
+                            logging.debug("not last")
+                            taskkwargs["futurename"] = "%s [%s]" % (futurenameprefix if futurenameprefix else "-", index+1)
+                            future(flist[index+1], parentkey=futurekey, onsuccessf=childonsuccessforindex(index+1, newresults), weight=weight/len(flist) if weight else None, timeoutsec=timeoutsec, maxretries=maxretries, **taskkwargs)(newresults)
+                finally:
+                    logging.debug("Enter childonsuccess: %s, %s, %s" % (futurekey, index, childfuturekey))
+            logging.debug("Leave childonsuccessforindex: %s, %s, %s" % (futurekey, index, json.dumps(results, indent=2)))
             return childonsuccess
  
         taskkwargs["futurename"] = "%s [0]" % (futurenameprefix if futurenameprefix else "sequence")
         future(flist[0], parentkey=futurekey, onsuccessf=childonsuccessforindex(0, []), weight=weight/len(flist) if weight else None, timeoutsec=timeoutsec, maxretries=maxretries, **taskkwargs)([]) # empty list of results 
                  
+        logging.debug("Leave futuresequence.toplevel: %s" % futurekey)
         raise FutureNotReadyForResult("sequence started")
  
     return toplevel
 
 def futureparallel(ffseq, parentkey = None, onsuccessf=None, onfailuref=None, onallchildsuccessf=None, onprogressf=None, weight=None, timeoutsec=1800, maxretries=None, futurenameprefix=None, **taskkwargs):
+    logging.debug("Enter futureparallel: %s" % len(ffseq))
     flist = list(ffseq)
      
     taskkwargs["futurename"] = "%s (top level)" % futurenameprefix if futurenameprefix else "parallel"
      
     @future(parentkey = parentkey, onsuccessf = onsuccessf, onfailuref = onfailuref, onallchildsuccessf=onallchildsuccessf, onprogressf = onprogressf, weight=weight, timeoutsec=timeoutsec, maxretries=maxretries, **taskkwargs)
     def toplevel(futurekey, *args, **kwargs):
+        logging.debug("Enter futureparallel.toplevel: %s" % futurekey)
         def OnAllChildSuccess():
             logging.debug("Enter OnAllChildSuccess: %s" % futurekey)
             parentfuture = futurekey.get() if futurekey else None
@@ -829,6 +845,7 @@ def futureparallel(ffseq, parentkey = None, onsuccessf=None, onfailuref=None, on
             taskkwargs["futurename"] = "%s [%s]" % (futurenameprefix if futurenameprefix else "parallel", ix)
             future(ff, parentkey=futurekey, onallchildsuccessf = OnAllChildSuccess, weight=weight/len(flist) if weight else None, timeoutsec=timeoutsec, maxretries=maxretries, **taskkwargs)()
                  
+        logging.debug("Leave futureparallel.toplevel: %s" % futurekey)
         raise FutureReadyForResult("parallel started")
  
     return toplevel

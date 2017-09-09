@@ -60,16 +60,16 @@ def _run_from_datastore(headers, key):
     Returns:
       The return value of the function invocation.
     """
-    logging.debug("in _run_from_datastore")
-#     entity = _TaskToRun.get(key)
-#     if entity:
-#         try:
-#             _run(entity.data, headers)
-#         except PermanentTaskFailure:
-#             entity.delete()
-#             raise
-#         else:
-#             entity.delete()
+    logging.warning("running task from datastore")
+    entity = _TaskToRun.get(key)
+    if entity:
+        try:
+            _run(entity.data, headers)
+        except PermanentTaskFailure:
+            entity.delete()
+            raise
+        else:
+            entity.delete()
 
 def task(f=None, **taskkwargs):
     if not f:
@@ -104,10 +104,16 @@ def task(f=None, **taskkwargs):
     @functools.wraps(f)    
     def runtask(*args, **kwargs):
         pickled = yccloudpickle.dumps((f, args, kwargs, passthroughargs))
+        logging.debug("task pickle length: %s" % len(pickled))
         try:
             task = taskqueue.Task(payload=pickled, **taskkwargscopy)
             return task.add(queue, transactional=transactional)
         except taskqueue.TaskTooLargeError:
+            pickledf = yccloudpickle.dumps(f)
+            pickleda = yccloudpickle.dumps(args)
+            pickledk = yccloudpickle.dumps(kwargs)
+            pickledp = yccloudpickle.dumps(passthroughargs)
+            logging.exception("task too large, need to use datastore (%s, %s, %s, %s)" % (len(pickledf), len(pickleda), len(pickledk), len(pickledp)))
             if parent:
                 key = _TaskToRun(data=pickled, parent=parent).put()
             else:
