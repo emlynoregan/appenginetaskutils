@@ -1,7 +1,7 @@
 from google.appengine.ext import ndb
 import functools
 from taskutils import task
-from yccloudpickle import yccloudpickle
+import cloudpickle
 import pickle
 import datetime
 import logging
@@ -209,7 +209,7 @@ class _Future(ndb.model.Model):
                 self.status = "success"
                 self.initialised = True
                 self.readyforresult = True
-                self.resultser = yccloudpickle.dumps(result)
+                self.resultser = cloudpickle.dumps(result)
                 self.runtimesec = self.get_runtime().total_seconds()
                 didput = True
                 self.put()
@@ -230,7 +230,7 @@ class _Future(ndb.model.Model):
                 self.status = "failure"
                 self.initialised = True
                 self.readyforresult = True
-                self.exceptionser = yccloudpickle.dumps(exception)
+                self.exceptionser = cloudpickle.dumps(exception)
                 self.runtimesec = self.get_runtime().total_seconds()
                 didput = True
                 self.put()
@@ -265,7 +265,7 @@ class _Future(ndb.model.Model):
                 self.status = "success"
                 self.initialised = True
                 self.readyforresult = True
-                self.resultser = yccloudpickle.dumps(result)
+                self.resultser = cloudpickle.dumps(result)
                 self.runtimesec = self.get_runtime().total_seconds()
                 didput = True
                 self.put()
@@ -623,14 +623,14 @@ def future(f=None, parentkey=None,
             futureobj.parentkey = parentkey # but keep the real parent key for lookups
             
             if onsuccessf:
-                futureobj.onsuccessfser = yccloudpickle.dumps(onsuccessf)
+                futureobj.onsuccessfser = cloudpickle.dumps(onsuccessf)
             if onfailuref:
-                futureobj.onfailurefser = yccloudpickle.dumps(onfailuref)
+                futureobj.onfailurefser = cloudpickle.dumps(onfailuref)
             if onallchildsuccessf:
-                futureobj.onallchildsuccessfser = yccloudpickle.dumps(onallchildsuccessf)
+                futureobj.onallchildsuccessfser = cloudpickle.dumps(onallchildsuccessf)
             if onprogressf:
-                futureobj.onprogressfser = yccloudpickle.dumps(onprogressf)
-            futureobj.taskkwargsser = yccloudpickle.dumps(taskkwargs)
+                futureobj.onprogressfser = cloudpickle.dumps(onprogressf)
+            futureobj.taskkwargsser = cloudpickle.dumps(taskkwargs)
     
     #         futureobj.onsuccessfser = yccloudpickle.dumps(onsuccessf) if onsuccessf else None
     #         futureobj.onfailurefser = yccloudpickle.dumps(onfailuref) if onfailuref else None

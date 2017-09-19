@@ -8,14 +8,14 @@ except ImportError:
 
 dist = setup(
     name='appenginetaskutils',
-    version='0.3.8.dev4',
+    version='0.4.0.dev1',
     description='Utilities for using appengine tasks. Inspired by deferred.',
     author='Emlyn O\'Regan',
     author_email='emlynoregan@gmail.com',
     url='https://github.com/emlynoregan/appenginetaskutils',
     license='LICENSE.txt',
     packages=['taskutils'],
-    install_requires=['yccloudpickle', 'GoogleAppEngineCloudStorageClient'],
+    install_requires=['cloudpickle', 'GoogleAppEngineCloudStorageClient', 'google-cloud-storage'],
     long_description=open('README.md').read(),
     classifiers=[
         'Development Status :: 3 - Alpha',

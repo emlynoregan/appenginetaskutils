@@ -1,15 +1,13 @@
 import pickle
-import yccloudpickle
+import cloudpickle
 from google.appengine.api import taskqueue
 from google.appengine.ext import db
 import webapp2
 from google.appengine.ext import webapp
-import flask
-import logging
 import functools
+from util import logdebug
+import logging
 
-_DEFAULT_FLASK_URL = "/_ah/task/<fmodule>/<ffunction>"
-_DEFAULT_FLASK_URL2 = "/_ah/task/<fname>"
 _DEFAULT_WEBAPP_URL = "/_ah/task/(.*)"
 _DEFAULT_ENQUEUE_URL = "/_ah/task/%s"
 
@@ -60,18 +58,17 @@ def _run_from_datastore(headers, key):
     Returns:
       The return value of the function invocation.
     """
-    logging.debug("in _run_from_datastore")
-#     entity = _TaskToRun.get(key)
-#     if entity:
-#         try:
-#             _run(entity.data, headers)
-#         except PermanentTaskFailure:
-#             entity.delete()
-#             raise
-#         else:
-#             entity.delete()
+    entity = _TaskToRun.get(key)
+    if entity:
+        try:
+            _run(entity.data, headers)
+        except PermanentTaskFailure:
+            entity.delete()
+            raise
+        else:
+            entity.delete()
 
-def task(f=None, **taskkwargs):
+def task(f=None, debug=False, **taskkwargs):
     if not f:
         return functools.partial(task, **taskkwargs)
     
@@ -95,7 +92,7 @@ def task(f=None, **taskkwargs):
     
     taskkwargscopy["url"] = url.lower()
     
-    logging.info(taskkwargscopy)
+    logdebug(debug, taskkwargscopy)
 
     passthroughargs = {
         "includeheaders": includeheaders
@@ -103,16 +100,22 @@ def task(f=None, **taskkwargs):
 
     @functools.wraps(f)    
     def runtask(*args, **kwargs):
-        pickled = yccloudpickle.dumps((f, args, kwargs, passthroughargs))
+        pickled = cloudpickle.dumps((f, args, kwargs, passthroughargs))
+        logdebug(debug, "task pickle length: %s" % len(pickled))
         try:
             task = taskqueue.Task(payload=pickled, **taskkwargscopy)
             return task.add(queue, transactional=transactional)
         except taskqueue.TaskTooLargeError:
+            pickledf = cloudpickle.dumps(f)
+            pickleda = cloudpickle.dumps(args)
+            pickledk = cloudpickle.dumps(kwargs)
+            pickledp = cloudpickle.dumps(passthroughargs)
+            logging.exception("task too large, need to use datastore (%s, %s, %s, %s)" % (len(pickledf), len(pickleda), len(pickledk), len(pickledp)))
             if parent:
                 key = _TaskToRun(data=pickled, parent=parent).put()
             else:
                 key = _TaskToRun(data=pickled).put()
-            rfspickled = yccloudpickle.dumps((None, [key], {}, {"_run_from_datastore": True}))
+            rfspickled = cloudpickle.dumps((None, [key], {}, {"_run_from_datastore": True}))
             task = taskqueue.Task(payload=rfspickled, **taskkwargscopy)
             return task.add(queue, transactional=transactional)
     return runtask
@@ -168,14 +171,3 @@ def addrouteforwebapp(routes):
 def addrouteforwebapp2(routes):
     routes.append((_DEFAULT_WEBAPP_URL, TaskHandler2))
     
-def setuptasksforflask(flaskapp):
-    @flaskapp.route(_DEFAULT_FLASK_URL, methods=["POST"])
-    def taskhandler(fmodule, ffunction):
-        _launch_task(flask.request.data, "%s/%s" % (fmodule, ffunction), flask.request.headers)
-        return ""
-
-    @flaskapp.route(_DEFAULT_FLASK_URL2, methods=["POST"])
-    def taskhandler2(fname):
-        _launch_task(flask.request.data, fname, flask.request.headers)
-        return ""
-

@@ -5,12 +5,12 @@ Created on 26Jul.,2017
 '''
 
 from google.appengine.api import memcache
-import yccloudpickle
 from datetime import datetime, timedelta
 import hashlib
 import task
 import functools
 import logging
+from taskutils.flash import make_flash
 
 def GenerateStableId(instring):
     return hashlib.md5(instring).hexdigest()
@@ -24,7 +24,7 @@ def debouncedtask(f=None, initsec = 0, repeatsec = 10, debouncename = None, **ta
         logging.debug("enter rundebouncedtask")
         retval = None
         client = memcache.Client()
-        cachekey = "dt%s" % (debouncename if debouncename else GenerateStableId(yccloudpickle.dumps(f)))
+        cachekey = "dt%s" % (debouncename if debouncename else make_flash(f, args, kwargs))
         logging.debug("cachekey: %s" % cachekey)
         eta = client.gets(cachekey)
         logging.debug("eta: %s" % eta)

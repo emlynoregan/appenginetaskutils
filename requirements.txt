@@ -1,4 +1,4 @@
 flask
-yccloudpickle
+cloudpickle
 GoogleAppEngineCloudStorageClient
 google-cloud-storage
