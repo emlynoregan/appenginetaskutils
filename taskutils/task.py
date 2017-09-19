@@ -58,6 +58,7 @@ def _run_from_datastore(headers, key):
     Returns:
       The return value of the function invocation.
     """
+    logging.warning("running task from datastore")
     entity = _TaskToRun.get(key)
     if entity:
         try:

@@ -5,6 +5,7 @@ from future import future, FutureReadyForResult, GenerateOnAllChildSuccess #get_
 from future import setlocalprogress, generatefuturepagemapf
 from google.cloud import storage  #@UnresolvedImport
 from taskutils.future import GenerateStableId
+from google.appengine.ext.deferred.deferred import PermanentTaskFailure
 
 def gcsfileshardedpagemap(pagemapf=None, gcspath=None, initialshards = 10, pagesize = 100, **taskkwargs):
     @task(**taskkwargs)
@@ -47,7 +48,7 @@ def gcsfileshardedmap(mapf=None, gcspath=None, initialshards = 10, pagesize = 10
     gcsfileshardedpagemap(ProcessPage, gcspath, initialshards, pagesize, **taskkwargs)
 
 
-def futuregcsfileshardedpagemap(pagemapf=None, gcspath=None, pagesize=100, onsuccessf=None, onfailuref=None, onprogressf = None, onallchildsuccessf = None, initialresult = None, oncombineresultsf = None, weight = 1, parentkey=None, **taskkwargs):
+def futuregcsfileshardedpagemap(pagemapf=None, gcspath=None, pagesize=100, onsuccessf=None, onfailuref=None, onprogressf = None, onallchildsuccessf = None, initialresult = None, oncombineresultsf = None, weight = None, parentkey=None, **taskkwargs):
     def MapOverRange(futurekey, startbyte, endbyte, weight, **kwargs):
         logging.debug("Enter MapOverRange: %s, %s, %s" % (startbyte, endbyte, weight))
 
@@ -67,7 +68,7 @@ def futuregcsfileshardedpagemap(pagemapf=None, gcspath=None, pagesize=100, onsuc
                 setlocalprogress(futurekey, len(page))
 
             if ranges:
-                newweight = (weight - len(page)) / len(ranges)
+                newweight = (weight - len(page)) / len(ranges) if not weight is None else None 
                 for arange in ranges:
                     taskkwargs["futurename"] = "shard %s" % (arange)
 
@@ -113,6 +114,9 @@ def futuregcsfileshardedmap(mapf=None, gcspath=None, pagesize = 100, onsuccessf 
 def futuregcscompose(gcsbucket=None, gcssourceprefix=None, gcstargetprefix=None, gcstargetfilename="output.txt", onsuccessf=None, onfailuref=None, onprogressf = None, initialresult = None, oncombineresultsf = None, weight = None, parentkey=None, **taskkwargs):
     numgcsfiles = len(list(listbucket(gcsbucket, gcssourceprefix)))
     
+    if not numgcsfiles:
+        return None
+        
     def GCSCombineToTarget(futurekey, startindex, finishindex, istop, **kwargs):
         logging.debug("Enter GCSCombineToTarget: %s, %s" % (startindex, finishindex))
         try:
@@ -172,7 +176,8 @@ def futuregcscompose(gcsbucket=None, gcssourceprefix=None, gcstargetprefix=None,
                 raise FutureReadyForResult()
             else:
                 lblobs = list(listbucket(gcsbucket, gcssourceprefix))[startindex:finishindex]
-                lfilename = "%s/%s-%s-%s" % (gcstargetprefix, "composed", startindex, finishindex)
+                lfilename = "%s/%s" % (gcstargetprefix, gcstargetfilename if istop else "composed-%s-%s" % (startindex, finishindex))
+#                 lfilename = "%s/%s-%s-%s" % (gcstargetprefix, "composed", startindex, finishindex)
                 retval = composeblobs(gcsbucket, lfilename, lblobs)
                 return retval
         finally:
