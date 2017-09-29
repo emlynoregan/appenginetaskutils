@@ -12,7 +12,7 @@ def gcscacher(f, bucketname=None, cachekey=None, expiresec = None):
         return functools.partial(gcscacher, expiresec=expiresec)
 
     def getvalue(*args, **kwargs):
-        key = make_flash(f, args, kwargs)
+        key = cachekey if cachekey else make_flash(f, args, kwargs)
         logdebug("Enter gcscacher.getvalue: %s" % key)
 
         bucket = bucketname if bucketname else os.environ.get(

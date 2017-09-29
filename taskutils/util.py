@@ -32,7 +32,7 @@ def dumper(thing):
             logdebug("%s [%s] %s" % ("#" * (indent+1), len(cloudpickle.dumps(f)), f))
             logdebug("%s code size = %s" % ("#" * (indent+1), len(cloudpickle.dumps(f.func_code))))
 #             print "%s closure size = %s" % ("#" * indent, len(cloudpickle.dumps(f.func_closure)))
-            dodumpclosure(f, (indent+1), foundf)
+            dodumpclosure(f, (indent+1), foundf + [f])
                     
         def printi(arg, indent):
             logdebug("%s [%s] %s" % ("#" * (indent+1), len(cloudpickle.dumps(arg)), arg))
