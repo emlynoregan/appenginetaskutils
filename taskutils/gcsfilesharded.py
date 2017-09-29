@@ -1,16 +1,16 @@
 from task import task
-import logging
 import cloudstorage as gcs
 from future import future, FutureReadyForResult, GenerateOnAllChildSuccess #get_children
 from future import setlocalprogress, generatefuturepagemapf
 from google.cloud import storage  #@UnresolvedImport
 from taskutils.future import GenerateStableId
 from google.appengine.ext.deferred.deferred import PermanentTaskFailure
+from taskutils.util import logdebug, logexception
 
 def gcsfileshardedpagemap(pagemapf=None, gcspath=None, initialshards = 10, pagesize = 100, **taskkwargs):
     @task(**taskkwargs)
     def MapOverRange(startpos, endpos, **kwargs):
-        logging.debug("Enter MapOverRange: %s, %s" % (startpos, endpos))
+        logdebug("Enter MapOverRange: %s, %s" % (startpos, endpos))
 
         # open file at gcspath for read
         with gcs.open(gcspath) as gcsfile:
@@ -23,7 +23,7 @@ def gcsfileshardedpagemap(pagemapf=None, gcspath=None, initialshards = 10, pages
         if pagemapf:
             pagemapf(page)
 
-        logging.debug("Leave MapOverRange: %s, %s" % (startpos, endpos))
+        logdebug("Leave MapOverRange: %s, %s" % (startpos, endpos))
 
     # get length of file in bytes
     filestat = gcs.stat(gcspath)
@@ -34,15 +34,15 @@ def gcsfileshardedpagemap(pagemapf=None, gcspath=None, initialshards = 10, pages
 def gcsfileshardedmap(mapf=None, gcspath=None, initialshards = 10, pagesize = 100, **taskkwargs):
     @task(**taskkwargs)
     def InvokeMap(line, **kwargs):
-        logging.debug("Enter InvokeMap: %s" % line)
+        logdebug("Enter InvokeMap: %s" % line)
         try:
             mapf(line, **kwargs)
         finally:
-            logging.debug("Leave InvokeMap: %s" % line)
+            logdebug("Leave InvokeMap: %s" % line)
      
     def ProcessPage(lines):
         for index, line in enumerate(lines):
-            logging.debug("Line #%s: %s" % (index, line))
+            logdebug("Line #%s: %s" % (index, line))
             InvokeMap(line)
  
     gcsfileshardedpagemap(ProcessPage, gcspath, initialshards, pagesize, **taskkwargs)
@@ -50,7 +50,7 @@ def gcsfileshardedmap(mapf=None, gcspath=None, initialshards = 10, pagesize = 10
 
 def futuregcsfileshardedpagemap(pagemapf=None, gcspath=None, pagesize=100, onsuccessf=None, onfailuref=None, onprogressf = None, onallchildsuccessf = None, initialresult = None, oncombineresultsf = None, weight = None, parentkey=None, **taskkwargs):
     def MapOverRange(futurekey, startbyte, endbyte, weight, **kwargs):
-        logging.debug("Enter MapOverRange: %s, %s, %s" % (startbyte, endbyte, weight))
+        logdebug("Enter MapOverRange: %s, %s, %s" % (startbyte, endbyte, weight))
 
         linitialresult = initialresult if not initialresult is None else 0
         loncombineresultsf = oncombineresultsf if oncombineresultsf else lambda a, b: a + b
@@ -81,7 +81,7 @@ def futuregcsfileshardedpagemap(pagemapf=None, gcspath=None, pagesize=100, onsuc
             else:
                 return len(page)
         finally:
-            logging.debug("Leave MapOverRange: %s, %s, %s" % (startbyte, endbyte, weight))
+            logdebug("Leave MapOverRange: %s, %s, %s" % (startbyte, endbyte, weight))
 
     # get length of file in bytes
     filestat = gcs.stat(gcspath)
@@ -98,11 +98,11 @@ def futuregcsfileshardedpagemap(pagemapf=None, gcspath=None, pagesize=100, onsuc
  
 def generategcsinvokemapf(mapf):
     def InvokeMap(futurekey, line, **kwargs):
-        logging.debug("Enter InvokeMap: %s" % line)
+        logdebug("Enter InvokeMap: %s" % line)
         try:
             return mapf(line, **kwargs)
         finally:
-            logging.debug("Leave InvokeMap: %s" % line)
+            logdebug("Leave InvokeMap: %s" % line)
     return InvokeMap
 
 def futuregcsfileshardedmap(mapf=None, gcspath=None, pagesize = 100, onsuccessf = None, onfailuref = None, onprogressf = None, onallchildsuccessf=None, initialresult = None, oncombineresultsf = None, weight= None, parentkey = None, **taskkwargs):
@@ -118,7 +118,7 @@ def futuregcscompose(gcsbucket=None, gcssourceprefix=None, gcstargetprefix=None,
         return None
         
     def GCSCombineToTarget(futurekey, startindex, finishindex, istop, **kwargs):
-        logging.debug("Enter GCSCombineToTarget: %s, %s" % (startindex, finishindex))
+        logdebug("Enter GCSCombineToTarget: %s, %s" % (startindex, finishindex))
         try:
             def higherlevelcompose(lop, rop):
                 try:
@@ -128,19 +128,19 @@ def futuregcscompose(gcsbucket=None, gcssourceprefix=None, gcstargetprefix=None,
                         blobs = getblobsbyname(gcsbucket, *blobnames)
                         if len(blobs) == 2:
                             ltotalcomponent_count = sum([blob.component_count for blob in blobs])
-                            logging.debug("ltotalcomponent_count: %s" % ltotalcomponent_count)
+                            logdebug("ltotalcomponent_count: %s" % ltotalcomponent_count)
                             if ltotalcomponent_count > 1020:
-                                logging.debug("doing copying")
+                                logdebug("doing copying")
                                 newblobnames = ["%s-copy" % blobname for blobname in blobnames]
                                 for ix, blob in enumerate(blobs):
                                     try:
                                         copyblob(gcsbucket, blob, newblobnames[ix])
                                     except Exception:
-                                        logging.exception("deleteblobs(copy)")
+                                        logexception("deleteblobs(copy)")
                                 try:
                                     deleteblobs(gcsbucket, blobs)
                                 except Exception:
-                                    logging.exception("deleteblobs(copy)")
+                                    logexception("deleteblobs(copy)")
                                 
                                 blobnames = newblobnames
                                 blobs = getblobsbyname(gcsbucket, *blobnames)
@@ -153,14 +153,14 @@ def futuregcscompose(gcsbucket=None, gcssourceprefix=None, gcstargetprefix=None,
                                 try:
                                     deleteblobs(gcsbucket, blobs)
                                 except Exception:
-                                    logging.exception("deleteblobs")
+                                    logexception("deleteblobs")
                         else:
                             raise Exception("Can't load blobs")
                     else:
                         retval = lop if lop else rop
                     return retval
                 except Exception, ex:
-                    logging.exception("higherlevelcompose")
+                    logexception("higherlevelcompose")
                     raise ex
             
             onallchildsuccessf = GenerateOnAllChildSuccess(futurekey, None, higherlevelcompose, failonerror=False)
@@ -169,7 +169,7 @@ def futuregcscompose(gcsbucket=None, gcssourceprefix=None, gcstargetprefix=None,
             
             if numfiles > 32:
                 ranges = CalculateFileRanges(startindex, finishindex, 2)
-                logging.debug("ranges:%s" % ranges)
+                logdebug("ranges:%s" % ranges)
                 for r in ranges:
                     futurename = "split %s" % (r, )
                     future(GCSCombineToTarget, futurename=futurename, onallchildsuccessf=onallchildsuccessf, parentkey=futurekey, weight = r[1]-r[0], **taskkwargs)(r[0], r[1], False)
@@ -181,7 +181,7 @@ def futuregcscompose(gcsbucket=None, gcssourceprefix=None, gcstargetprefix=None,
                 retval = composeblobs(gcsbucket, lfilename, lblobs)
                 return retval
         finally:
-            logging.debug("Leave GCSCombineToTarget: %s, %s" % (startindex, finishindex))
+            logdebug("Leave GCSCombineToTarget: %s, %s" % (startindex, finishindex))
     
     futurename = "gcscombinetotarget %s" % (numgcsfiles)
 

@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 import hashlib
 import task
 import functools
-import logging
 from taskutils.flash import make_flash
+from taskutils.util import logdebug
 
 def GenerateStableId(instring):
     return hashlib.md5(instring).hexdigest()
@@ -21,19 +21,19 @@ def debouncedtask(f=None, initsec = 0, repeatsec = 10, debouncename = None, **ta
     
     @functools.wraps(f)
     def rundebouncedtask(*args, **kwargs):
-        logging.debug("enter rundebouncedtask")
+        logdebug("enter rundebouncedtask")
         retval = None
         client = memcache.Client()
         cachekey = "dt%s" % (debouncename if debouncename else make_flash(f, args, kwargs))
-        logging.debug("cachekey: %s" % cachekey)
+        logdebug("cachekey: %s" % cachekey)
         eta = client.gets(cachekey)
-        logging.debug("eta: %s" % eta)
+        logdebug("eta: %s" % eta)
         now = datetime.utcnow()
-        logging.debug("now: %s" % now)
+        logdebug("now: %s" % now)
         nowplusinit = now + timedelta(seconds=initsec)
-        logging.debug("nowplusinit: %s" % nowplusinit)
+        logdebug("nowplusinit: %s" % nowplusinit)
         if not eta or eta < nowplusinit:
-            logging.debug("A")
+            logdebug("A")
             if not eta:
                 # we've never run this thing. Just go for it
                 countdown = 0
@@ -54,19 +54,19 @@ def debouncedtask(f=None, initsec = 0, repeatsec = 10, debouncename = None, **ta
             if countdown < initsec:
                 countdown = initsec # don't schedule anything closer than initsec to now.
 
-            logging.debug("countdown: %s" % countdown)
+            logdebug("countdown: %s" % countdown)
             
             nexteta = now + timedelta(seconds=countdown)
             
-            logging.debug("nexteta: %s" % nexteta)
+            logdebug("nexteta: %s" % nexteta)
 
             if eta is None:
                 casresult = client.add(cachekey, nexteta)
             else:
                 casresult = client.cas(cachekey, nexteta)
-            logging.debug("CAS result: %s" % casresult)
+            logdebug("CAS result: %s" % casresult)
             if casresult:
-                logging.debug("B")
+                logdebug("B")
                 
                 taskkwargscopy = dict(taskkwargs)
                 if "countdown" in taskkwargscopy:
@@ -77,6 +77,6 @@ def debouncedtask(f=None, initsec = 0, repeatsec = 10, debouncename = None, **ta
                 retval = task.task(f, **taskkwargscopy)(*args, **kwargs) # if this fails, we'll get an exception back to the caller
             # else someone's already done this. So let's just stop.
         # else we're already scheduled to run far enough into  the future, So, let's just stop
-        logging.debug("leave rundebouncedtask")
+        logdebug("leave rundebouncedtask")
         return retval
     return rundebouncedtask

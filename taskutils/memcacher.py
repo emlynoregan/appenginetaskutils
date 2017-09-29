@@ -1,10 +1,10 @@
 import functools
-import logging
 from taskutils.flash import make_flash
 from google.appengine.api import memcache
+from taskutils.util import logdebug
 
 #decorator to add caching to a function
-def memcacher(f = None, cachekey=None, expiresec = 600, debug=False):
+def memcacher(f = None, cachekey=None, expiresec = 600):
     if not f:
         return functools.partial(memcacher, cachekey = cachekey, expiresec = expiresec)
 
@@ -13,13 +13,11 @@ def memcacher(f = None, cachekey=None, expiresec = 600, debug=False):
         
         retval = memcache.get(lcachekey) #@UndefinedVariable
         if retval is None:
-            if debug:
-                logging.debug("MISS: %s" % lcachekey)
+            logdebug("MISS: %s" % lcachekey)
             retval = f(*args, **kwargs)
             memcache.add(key=lcachekey, value=retval, time=expiresec) #@UndefinedVariable
         else:
-            if debug: 
-                logging.debug("HIT: %s" % lcachekey)
+            logdebug("HIT: %s" % lcachekey)
 
         return retval
 

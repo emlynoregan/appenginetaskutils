@@ -1,20 +1,20 @@
 from task import task, RetryTaskException
 from google.appengine.ext.key_range import KeyRange
-import logging
 from taskutils.future import future, FutureReadyForResult, FutureNotReadyForResult
 from taskutils.future import GenerateOnAllChildSuccess, generatefuturepagemapf,\
     setlocalprogress, GetFutureAndCheckReady
+from taskutils.util import logdebug
 
 def ndbshardedpagemap(pagemapf=None, ndbquery=None, initialshards = 10, pagesize = 100, **taskkwargs):
     @task(**taskkwargs)
     def MapOverRange(keyrange, **kwargs):
-        logging.debug("Enter MapOverRange: %s" % keyrange)
+        logdebug("Enter MapOverRange: %s" % keyrange)
  
         _fixkeyend(keyrange, kind)
  
         filteredquery = keyrange.filter_ndb_query(ndbquery)
          
-        logging.debug (filteredquery)
+        logdebug (filteredquery)
          
         keys, _, more = filteredquery.fetch_page(pagesize, keys_only=True)
          
@@ -24,15 +24,15 @@ def ndbshardedpagemap(pagemapf=None, ndbquery=None, initialshards = 10, pagesize
         if more and keys:
             newkeyrange = KeyRange(keys[-1], keyrange.key_end, keyrange.direction, False, keyrange.include_end)
             krlist = newkeyrange.split_range()
-            logging.debug("krlist: %s" % krlist)
+            logdebug("krlist: %s" % krlist)
             for kr in krlist:
                 MapOverRange(kr)
-        logging.debug("Leave MapOverRange: %s" % keyrange)
+        logdebug("Leave MapOverRange: %s" % keyrange)
  
     kind = ndbquery.kind
  
     krlist = KeyRange.compute_split_points(kind, initialshards)
-    logging.debug("first krlist: %s" % krlist)
+    logdebug("first krlist: %s" % krlist)
  
     for kr in krlist:
         MapOverRange(kr)
@@ -40,7 +40,7 @@ def ndbshardedpagemap(pagemapf=None, ndbquery=None, initialshards = 10, pagesize
 def ndbshardedmap(mapf=None, ndbquery=None, initialshards = 10, pagesize = 100, skipmissing = False, **taskkwargs):
     @task(**taskkwargs)
     def InvokeMap(key, **kwargs):
-        logging.debug("Enter InvokeMap: %s" % key)
+        logdebug("Enter InvokeMap: %s" % key)
         try:
             obj = key.get()
             if not obj:
@@ -50,11 +50,11 @@ def ndbshardedmap(mapf=None, ndbquery=None, initialshards = 10, pagesize = 100, 
             else:
                 mapf(obj, **kwargs)
         finally:
-            logging.debug("Leave InvokeMap: %s" % key)
+            logdebug("Leave InvokeMap: %s" % key)
     
     def ProcessPage(keys):
         for index, key in enumerate(keys):
-            logging.debug("Key #%s: %s" % (index, key))
+            logdebug("Key #%s: %s" % (index, key))
             InvokeMap(key)
 
     ndbshardedpagemap(ProcessPage, ndbquery, initialshards, pagesize, **taskkwargs)
@@ -64,24 +64,24 @@ def futurendbshardedpagemap(pagemapf=None, ndbquery=None, pagesize=100, onsucces
     kind = ndbquery.kind
  
     krlist = KeyRange.compute_split_points(kind, 5)
-    logging.debug("first krlist: %s" % krlist)
-    logging.debug(taskkwargs)
+    logdebug("first krlist: %s" % krlist)
+    logdebug(taskkwargs)
  
     @future(onsuccessf = onsuccessf, onfailuref = onfailuref, onprogressf = onprogressf, onallchildsuccessf=onallchildsuccessf, parentkey=parentkey, weight = weight, **taskkwargs)
     def dofuturendbshardedmap(futurekey):
-        logging.debug(taskkwargs)
+        logdebug(taskkwargs)
  
         linitialresult = initialresult if not initialresult is None else 0
         loncombineresultsf = oncombineresultsf if oncombineresultsf else lambda a, b: a + b
     
         def MapOverRange(futurekey, keyrange, weight, **kwargs):
-            logging.debug("Enter MapOverRange: %s" % keyrange)
+            logdebug("Enter MapOverRange: %s" % keyrange)
             try:
                 _fixkeyend(keyrange, kind)
                 
                 filteredquery = keyrange.filter_ndb_query(ndbquery)
                 
-                logging.debug (filteredquery)
+                logdebug (filteredquery)
                  
                 keys, _, more = filteredquery.fetch_page(pagesize, keys_only=True)
 
@@ -98,7 +98,7 @@ def futurendbshardedpagemap(pagemapf=None, ndbquery=None, pagesize=100, onsucces
                     lonallchildsuccessf = GenerateOnAllChildSuccess(futurekey, linitialresult if pagemapf else len(keys), loncombineresultsf)
                     newkeyrange = KeyRange(keys[-1], keyrange.key_end, keyrange.direction, False, keyrange.include_end)
                     krlist = newkeyrange.split_range()
-                    logging.debug("krlist: %s" % krlist)
+                    logdebug("krlist: %s" % krlist)
                     newweight = (weight / len(krlist)) - len(keys) if weight else None
                     for kr in krlist:
                         futurename = "shard %s" % (kr)
@@ -111,7 +111,7 @@ def futurendbshardedpagemap(pagemapf=None, ndbquery=None, pagesize=100, onsucces
                     return len(keys)#(len(keys), 0, keyrange)
 #                 return len(keys)
             finally:
-                logging.debug("Leave MapOverRange: %s" % keyrange)
+                logdebug("Leave MapOverRange: %s" % keyrange)
   
         for kr in krlist:
             lonallchildsuccessf = GenerateOnAllChildSuccess(futurekey, linitialresult, loncombineresultsf)
@@ -127,7 +127,7 @@ def futurendbshardedpagemap(pagemapf=None, ndbquery=None, pagesize=100, onsucces
 
 def generateinvokemapf(mapf):
     def InvokeMap(futurekey, key, **kwargs):
-        logging.debug("Enter InvokeMap: %s" % key)
+        logdebug("Enter InvokeMap: %s" % key)
         try:
             obj = key.get()
             if not obj:
@@ -135,7 +135,7 @@ def generateinvokemapf(mapf):
      
             return mapf(futurekey, obj, **kwargs)
         finally:
-            logging.debug("Leave InvokeMap: %s" % key)
+            logdebug("Leave InvokeMap: %s" % key)
     return InvokeMap
 
 def futurendbshardedmap(mapf=None, ndbquery=None, pagesize = 100, onsuccessf = None, onfailuref = None, onprogressf = None, onallchildsuccessf = None, initialresult = None, oncombineresultsf = None, weight = None, parentkey = None, **taskkwargs):
@@ -188,6 +188,6 @@ def _fixkeyend(keyrange, kind):
     if keyrange.key_start and not keyrange.key_end:
         endkey = KeyRange.guess_end_key(kind, keyrange.key_start)
         if endkey and endkey > keyrange.key_start:
-            logging.debug("Fixing end: %s" % endkey)
+            logdebug("Fixing end: %s" % endkey)
             keyrange.key_end = endkey
     

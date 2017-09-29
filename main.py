@@ -1,9 +1,12 @@
 import logging
 
 from flask import Flask
-from taskutils import setuptasksforflask
+from taskutils import setuptasksforflask, set_logging, set_dump
 from handlers.switchboard import get_switchboard
 from handlers.report import get_report
+
+set_logging(True)
+set_dump(True)
 
 app = Flask(__name__)
 

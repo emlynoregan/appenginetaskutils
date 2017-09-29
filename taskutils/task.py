@@ -5,8 +5,7 @@ from google.appengine.ext import db
 import webapp2
 from google.appengine.ext import webapp
 import functools
-from util import logdebug
-import logging
+from taskutils.util import logdebug, logwarning, logexception, dumper, get_dump
 
 _DEFAULT_WEBAPP_URL = "/_ah/task/(.*)"
 _DEFAULT_ENQUEUE_URL = "/_ah/task/%s"
@@ -58,7 +57,7 @@ def _run_from_datastore(headers, key):
     Returns:
       The return value of the function invocation.
     """
-    logging.warning("running task from datastore")
+    logwarning("running task from datastore")
     entity = _TaskToRun.get(key)
     if entity:
         try:
@@ -69,7 +68,7 @@ def _run_from_datastore(headers, key):
         else:
             entity.delete()
 
-def task(f=None, debug=False, **taskkwargs):
+def task(f=None, **taskkwargs):
     if not f:
         return functools.partial(task, **taskkwargs)
     
@@ -93,7 +92,7 @@ def task(f=None, debug=False, **taskkwargs):
     
     taskkwargscopy["url"] = url.lower()
     
-    logdebug(debug, taskkwargscopy)
+    logdebug(taskkwargscopy)
 
     passthroughargs = {
         "includeheaders": includeheaders
@@ -102,7 +101,16 @@ def task(f=None, debug=False, **taskkwargs):
     @functools.wraps(f)    
     def runtask(*args, **kwargs):
         pickled = cloudpickle.dumps((f, args, kwargs, passthroughargs))
-        logdebug(debug, "task pickle length: %s" % len(pickled))
+        logdebug("task pickle length: %s" % len(pickled))
+        if get_dump():
+            logdebug("f:")
+            dumper(f)
+            logdebug("args:")
+            dumper(args)
+            logdebug("kwargs:")
+            dumper(kwargs)
+            logdebug("passthroughargs:")
+            dumper(passthroughargs)
         try:
             task = taskqueue.Task(payload=pickled, **taskkwargscopy)
             return task.add(queue, transactional=transactional)
@@ -111,7 +119,7 @@ def task(f=None, debug=False, **taskkwargs):
             pickleda = cloudpickle.dumps(args)
             pickledk = cloudpickle.dumps(kwargs)
             pickledp = cloudpickle.dumps(passthroughargs)
-            logging.exception("task too large, need to use datastore (%s, %s, %s, %s)" % (len(pickledf), len(pickleda), len(pickledk), len(pickledp)))
+            logexception("task too large, need to use datastore (%s, %s, %s, %s)" % (len(pickledf), len(pickleda), len(pickledk), len(pickledp)))
             if parent:
                 key = _TaskToRun(data=pickled, parent=parent).put()
             else:
@@ -142,19 +150,19 @@ def _launch_task(pickled, name, headers):
 #             k = key.lower()
 #             if k.startswith("x-appengine-") and k not in _SKIP_HEADERS:
 #                 dheaders.append("%s:%s" % (key, value))
-#         logging.debug(", ".join(dheaders))
-        logging.debug(", ".join(["%s:%s" % (key, value) for key, value in headers.items()]))
+#         logdebug(", ".join(dheaders))
+        logdebug(", ".join(["%s:%s" % (key, value) for key, value in headers.items()]))
         
         if not isFromTaskQueue(headers):
             raise PermanentTaskFailure('Detected an attempted XSRF attack: we are not executing from a task queue.')
 
-        logging.debug('before run "%s"' % name)
+        logdebug('before run "%s"' % name)
         _run(pickled, headers)
-        logging.debug('after run "%s"' % name)
+        logdebug('after run "%s"' % name)
     except PermanentTaskFailure:
-        logging.exception("Aborting task")
+        logexception("Aborting task")
     except:
-        logging.exception("failure")
+        logexception("failure")
         raise
     # else let exceptions escape and cause a retry
 

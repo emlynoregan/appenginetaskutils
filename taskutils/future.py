@@ -4,7 +4,6 @@ from taskutils import task
 import cloudpickle
 import pickle
 import datetime
-import logging
 import uuid
 import json
 from taskutils.task import PermanentTaskFailure
@@ -12,6 +11,7 @@ import hashlib
 from google.appengine.api import taskqueue
 from google.appengine.api.datastore_errors import Timeout
 import time
+from taskutils.util import logdebug, logwarning, logexception
 
 class FutureReadyForResult(Exception):
     pass
@@ -75,12 +75,12 @@ class _Future(ndb.model.Model):
         try:
             # run the wrapper task, and if it fails due to a name clash just skip it (it was already kicked off by an earlier
             # attempt to construct this future).
-#             logging.debug("about to run task %s" % name)
+#             logdebug("about to run task %s" % name)
             dof()
         except taskqueue.TombstonedTaskError:
-            logging.debug("skip adding task %s (already been run)" % name)
+            logdebug("skip adding task %s (already been run)" % name)
         except taskqueue.TaskAlreadyExistsError:
-            logging.debug("skip adding task %s (already running)" % name)
+            logdebug("skip adding task %s (already running)" % name)
 
     def has_result(self):
         return bool(self.status)
@@ -188,14 +188,14 @@ class _Future(ndb.model.Model):
 
     def _set_local_progress_for_success(self):
         progressObj = self._get_progressobject()
-        logging.debug("progressObj = %s" % progressObj)
+        logdebug("progressObj = %s" % progressObj)
         weight = self.get_weight(progressObj)
         weight = weight if not weight is None else 1
-        logging.debug("weight = %s" % weight)
+        logdebug("weight = %s" % weight)
         localprogress = self.get_localprogress(progressObj)
-        logging.debug("localprogress = %s" % localprogress)
+        logdebug("localprogress = %s" % localprogress)
         if localprogress < weight and not self.GetChildren():
-            logging.debug("No children, we can auto set localprogress from weight")
+            logdebug("No children, we can auto set localprogress from weight")
             self.set_localprogress(weight)
 
     @ndb.non_transactional
@@ -324,20 +324,20 @@ class _Future(ndb.model.Model):
         calculatedprogress = self.get_calculatedprogress(progressobj)
         if localprogress != value:
 #             haschildren = self.GetChildren()
-#             logging.debug("haschildren: %s" % haschildren)
+#             logdebug("haschildren: %s" % haschildren)
 
             progressobj.localprogress = value
-            logging.debug("localprogress: %s" % value)
+            logdebug("localprogress: %s" % value)
 #             if not haschildren:
             lneedupd = value > calculatedprogress
             if lneedupd:
-                logging.debug("setting calculated progress")
+                logdebug("setting calculated progress")
                 progressobj.calculatedprogress = value
                 
             progressobj.put()
             
             if lneedupd:
-                logging.debug("kicking off calculate parent progress")
+                logdebug("kicking off calculate parent progress")
                 self._calculate_parent_progress()
 
             self._callOnProgress()
@@ -427,7 +427,7 @@ class _Future(ndb.model.Model):
 #     @task(**taskkwargs)
 #     def UpdateChildren():
 #         for childfuture in get_children(futureobj.key):
-# #             logging.debug("update_result: %s" % childfuture.key)
+# #             logdebug("update_result: %s" % childfuture.key)
 #             childfuture.update_result()
 #     UpdateChildren()
 
@@ -444,7 +444,7 @@ def DefaultOnFailure(futurekey):
 
 def GenerateOnAllChildSuccess(parentkey, initialvalue, combineresultf, failonerror=True):
     def OnAllChildSuccess():
-        logging.debug("Enter GenerateOnAllChildSuccess: %s" % parentkey)
+        logdebug("Enter GenerateOnAllChildSuccess: %s" % parentkey)
         parentfuture = parentkey.get() if parentkey else None
         if parentfuture and not parentfuture.has_result():
             if not parentfuture.initialised or not parentfuture.readyforresult:
@@ -455,40 +455,40 @@ def GenerateOnAllChildSuccess(parentkey, initialvalue, combineresultf, failonerr
                 return get_children(parentfuture.key)
             children = get_children_trans()
             
-            logging.debug("children: %s" % [child.key for child in children])
+            logdebug("children: %s" % [child.key for child in children])
             if children:
                 result = initialvalue
                 error = None
                 finished = True
                 for childfuture in children:
-                    logging.debug("childfuture: %s" % childfuture.key)
+                    logdebug("childfuture: %s" % childfuture.key)
                     if childfuture.has_result():
                         try:
                             childresult = childfuture.get_result()
-                            logging.debug("childresult(%s): %s" % (childfuture.status, childresult))
+                            logdebug("childresult(%s): %s" % (childfuture.status, childresult))
                             result = combineresultf(result, childresult)
-                            logging.debug("hasresult:%s" % result)
+                            logdebug("hasresult:%s" % result)
                         except Exception, ex:
-                            logging.debug("haserror:%s" % repr(ex))
+                            logdebug("haserror:%s" % repr(ex))
                             error = ex
                             break
                     else:
-                        logging.debug("noresult")
+                        logdebug("noresult")
                         finished = False
                          
                 if error:
-                    logging.warning("Internal error, child has error in OnAllChildSuccess: %s" % error)
+                    logwarning("Internal error, child has error in OnAllChildSuccess: %s" % error)
                     if failonerror:
                         parentfuture.set_failure(error)
                     else:
                         raise error
                 elif finished:
-                    logging.debug("result: %s" % result)
+                    logdebug("result: %s" % result)
                     parentfuture.set_success(result)#(result, initialamount, keyrange))
                 else:
-                    logging.debug("child not finished in OnAllChildSuccess, skipping")
+                    logdebug("child not finished in OnAllChildSuccess, skipping")
             else:
-                logging.warning("Internal error, parent has no children in OnAllChildSuccess")
+                logwarning("Internal error, parent has no children in OnAllChildSuccess")
                 parentfuture.set_failure(Exception("no children found"))
 
     return OnAllChildSuccess
@@ -522,23 +522,23 @@ def OnProgressF(futurekey):
     if futureobj.parentkey:
         taskkwargs = futureobj.get_taskkwargs()
       
-        logging.debug("Enter OnProgressF: %s" % futureobj)
+        logdebug("Enter OnProgressF: %s" % futureobj)
         @task(**taskkwargs)
         def UpdateParent(parentkey):
-            logging.debug("***************************************************")
-            logging.debug("Enter UpdateParent: %s" % parentkey)
-            logging.debug("***************************************************")
+            logdebug("***************************************************")
+            logdebug("Enter UpdateParent: %s" % parentkey)
+            logdebug("***************************************************")
     
             parent = parentkey.get()
-            logging.debug("1: %s" % parent)
+            logdebug("1: %s" % parent)
             if parent:
-                logging.debug("2")
+                logdebug("2")
 #                 if not parent.has_result():
                 progress = 0
                 for childfuture in get_children(parentkey):
-                    logging.debug("3: %s" % childfuture)
+                    logdebug("3: %s" % childfuture)
                     progress += childfuture.get_progress()
-                logging.debug("4: %s" % (progress))
+                logdebug("4: %s" % (progress))
                 parent.set_progress(progress)
     
         UpdateParent(futureobj.parentkey)
@@ -589,13 +589,13 @@ def future(f=None, parentkey=None,
             weight = weight, timeoutsec = timeoutsec, maxretries = maxretries, futurename = futurename,
             **taskkwargs)
     
-#     logging.debug("includefuturekey: %s" % includefuturekey)
+#     logdebug("includefuturekey: %s" % includefuturekey)
     
     @functools.wraps(f)
     def runfuture(*args, **kwargs):
         @ndb.transactional()
         def runfuturetrans():
-            logging.debug("runfuture: parentkey=%s" % parentkey)
+            logdebug("runfuture: parentkey=%s" % parentkey)
     
             immediateancestorkey = ndb.Key(parentkey.kind(), parentkey.id()) if parentkey else None
     
@@ -615,8 +615,8 @@ def future(f=None, parentkey=None,
                 
             newkey = ndb.Key(_Future, newfutureId, parent = immediateancestorkey)
             
-    #         logging.debug("runfuture: ancestorkey=%s" % immediateancestorkey)
-    #         logging.debug("runfuture: newkey=%s" % newkey)
+    #         logdebug("runfuture: ancestorkey=%s" % immediateancestorkey)
+    #         logdebug("runfuture: newkey=%s" % newkey)
     
             futureobj = _Future(key=newkey) # just use immediate ancestor to keep entity groups at local level, not one for the entire tree
             
@@ -645,10 +645,10 @@ def future(f=None, parentkey=None,
             futureobj.name = futurename
                 
             futureobj.put()
-    #         logging.debug("runfuture: childkey=%s" % futureobj.key)
+    #         logdebug("runfuture: childkey=%s" % futureobj.key)
                     
             futurekey = futureobj.key
-            logging.debug("outer, futurekey=%s" % futurekey)
+            logdebug("outer, futurekey=%s" % futurekey)
             
             @task(includeheaders = True, **taskkwargscopy)
             def _futurewrapper(headers):
@@ -657,13 +657,13 @@ def future(f=None, parentkey=None,
                     try:
                         lretryCount = int(headers.get("X-Appengine-Taskretrycount", 0)) if headers else 0 
                     except:
-                        logging.exception("Failed trying to get retry count, using 0")
+                        logexception("Failed trying to get retry count, using 0")
                         
                     if lretryCount > maxretries:
                         raise PermanentTaskFailure("Too many retries of Future")
                 
                 
-                logging.debug("inner, futurekey=%s" % futurekey)
+                logdebug("inner, futurekey=%s" % futurekey)
                 futureobj = futurekey.get()
                 if futureobj:
                     futureobj.set_weight(weight)# if weight >= 1 else 1)
@@ -671,7 +671,7 @@ def future(f=None, parentkey=None,
                     raise Exception("Future not ready yet")
     
                 try:
-                    logging.debug("args, kwargs=%s, %s" % (args, kwargs))
+                    logdebug("args, kwargs=%s, %s" % (args, kwargs))
                     result = f(futurekey, *args, **kwargs)
     
                 except FutureReadyForResult:
@@ -701,9 +701,9 @@ def future(f=None, parentkey=None,
                 # attempt to construct this future).
                 _futurewrapper()
             except taskqueue.TombstonedTaskError:
-                logging.debug("skip adding task (already been run)")
+                logdebug("skip adding task (already been run)")
             except taskqueue.TaskAlreadyExistsError:
-                logging.debug("skip adding task (already running)")
+                logdebug("skip adding task (already running)")
             
             return futureobj
 
@@ -720,7 +720,7 @@ def future(f=None, parentkey=None,
             else:
                 break # do we need this? Don't think so
 
-    logging.debug("about to call runfuture")
+    logdebug("about to call runfuture")
     return runfuture
 
 def GetFutureAndCheckReady(futurekey):
@@ -732,7 +732,7 @@ def GetFutureAndCheckReady(futurekey):
 # fsf = futuresequencefunction
 # different from future function because it has a "results" argument, a list.
 def futuresequence(fsfseq, parentkey = None, onsuccessf=None, onfailuref=None, onallchildsuccessf=None, onprogressf=None, weight=None, timeoutsec=1800, maxretries=None, futurenameprefix=None, **taskkwargs):
-    logging.debug("Enter futuresequence: %s" % len(fsfseq))
+    logdebug("Enter futuresequence: %s" % len(fsfseq))
     
     flist = list(fsfseq)
      
@@ -740,12 +740,12 @@ def futuresequence(fsfseq, parentkey = None, onsuccessf=None, onfailuref=None, o
      
     @future(parentkey = parentkey, onsuccessf = onsuccessf, onfailuref = onfailuref, onallchildsuccessf=onallchildsuccessf, onprogressf = onprogressf, weight=weight, timeoutsec=timeoutsec, maxretries=maxretries, **taskkwargs)
     def toplevel(futurekey, *args, **kwargs):
-        logging.debug("Enter futuresequence.toplevel: %s" % futurekey)
+        logdebug("Enter futuresequence.toplevel: %s" % futurekey)
         def childonsuccessforindex(index, results):
-            logging.debug("Enter childonsuccessforindex: %s, %s, %s" % (futurekey, index, json.dumps(results, indent=2)))
+            logdebug("Enter childonsuccessforindex: %s, %s, %s" % (futurekey, index, json.dumps(results, indent=2)))
             def childonsuccess(childfuturekey):
-                logging.debug("Enter childonsuccess: %s, %s, %s" % (futurekey, index, childfuturekey))
-                logging.debug("results: %s" % json.dumps(results, indent=2))
+                logdebug("Enter childonsuccess: %s, %s, %s" % (futurekey, index, childfuturekey))
+                logdebug("results: %s" % json.dumps(results, indent=2))
                 try:
                     childfuture = GetFutureAndCheckReady(childfuturekey)
                      
@@ -758,46 +758,46 @@ def futuresequence(fsfseq, parentkey = None, onsuccessf=None, onfailuref=None, o
                         else:
                             raise Exception("Can't load toplevel future for failure")
                     else:
-                        logging.debug("result: %s" % json.dumps(result, indent=2))
+                        logdebug("result: %s" % json.dumps(result, indent=2))
                         newresults = results + [result]
                         islast = (index == (len(flist) - 1))
                          
                         if islast:
-                            logging.debug("islast")
+                            logdebug("islast")
                             toplevelfuture = futurekey.get()
                             if toplevelfuture:
-                                logging.debug("setting top level success")
+                                logdebug("setting top level success")
                                 toplevelfuture.set_success_and_readyforesult(newresults)
                             else:
                                 raise Exception("Can't load toplevel future for success")
                         else:
-                            logging.debug("not last")
+                            logdebug("not last")
                             taskkwargs["futurename"] = "%s [%s]" % (futurenameprefix if futurenameprefix else "-", index+1)
                             future(flist[index+1], parentkey=futurekey, onsuccessf=childonsuccessforindex(index+1, newresults), weight=weight/len(flist) if weight else None, timeoutsec=timeoutsec, maxretries=maxretries, **taskkwargs)(newresults)
                 finally:
-                    logging.debug("Enter childonsuccess: %s, %s, %s" % (futurekey, index, childfuturekey))
-            logging.debug("Leave childonsuccessforindex: %s, %s, %s" % (futurekey, index, json.dumps(results, indent=2)))
+                    logdebug("Enter childonsuccess: %s, %s, %s" % (futurekey, index, childfuturekey))
+            logdebug("Leave childonsuccessforindex: %s, %s, %s" % (futurekey, index, json.dumps(results, indent=2)))
             return childonsuccess
  
         taskkwargs["futurename"] = "%s [0]" % (futurenameprefix if futurenameprefix else "sequence")
         future(flist[0], parentkey=futurekey, onsuccessf=childonsuccessforindex(0, []), weight=weight/len(flist) if weight else None, timeoutsec=timeoutsec, maxretries=maxretries, **taskkwargs)([]) # empty list of results 
                  
-        logging.debug("Leave futuresequence.toplevel: %s" % futurekey)
+        logdebug("Leave futuresequence.toplevel: %s" % futurekey)
         raise FutureNotReadyForResult("sequence started")
  
     return toplevel
 
 def futureparallel(ffseq, parentkey = None, onsuccessf=None, onfailuref=None, onallchildsuccessf=None, onprogressf=None, weight=None, timeoutsec=1800, maxretries=None, futurenameprefix=None, **taskkwargs):
-    logging.debug("Enter futureparallel: %s" % len(ffseq))
+    logdebug("Enter futureparallel: %s" % len(ffseq))
     flist = list(ffseq)
      
     taskkwargs["futurename"] = "%s (top level)" % futurenameprefix if futurenameprefix else "parallel"
      
     @future(parentkey = parentkey, onsuccessf = onsuccessf, onfailuref = onfailuref, onallchildsuccessf=onallchildsuccessf, onprogressf = onprogressf, weight=weight, timeoutsec=timeoutsec, maxretries=maxretries, **taskkwargs)
     def toplevel(futurekey, *args, **kwargs):
-        logging.debug("Enter futureparallel.toplevel: %s" % futurekey)
+        logdebug("Enter futureparallel.toplevel: %s" % futurekey)
         def OnAllChildSuccess():
-            logging.debug("Enter OnAllChildSuccess: %s" % futurekey)
+            logdebug("Enter OnAllChildSuccess: %s" % futurekey)
             parentfuture = futurekey.get() if futurekey else None
             if parentfuture and not parentfuture.has_result():
                 if not parentfuture.initialised or not parentfuture.readyforresult:
@@ -808,44 +808,44 @@ def futureparallel(ffseq, parentkey = None, onsuccessf=None, onfailuref=None, on
                     return get_children(parentfuture.key)
                 children = get_children_trans()
                 
-                logging.debug("children: %s" % [child.key for child in children])
+                logdebug("children: %s" % [child.key for child in children])
                 if children:
                     result = []
                     error = None
                     finished = True
                     for childfuture in children:
-                        logging.debug("childfuture: %s" % childfuture.key)
+                        logdebug("childfuture: %s" % childfuture.key)
                         if childfuture.has_result():
                             try:
                                 childresult = childfuture.get_result()
-                                logging.debug("childresult(%s): %s" % (childfuture.status, childresult))
+                                logdebug("childresult(%s): %s" % (childfuture.status, childresult))
                                 result += [childfuture.get_result()]
-                                logging.debug("intermediate result:%s" % result)
+                                logdebug("intermediate result:%s" % result)
                             except Exception, ex:
-                                logging.debug("haserror:%s" % repr(ex))
+                                logdebug("haserror:%s" % repr(ex))
                                 error = ex
                                 break
                         else:
-                            logging.debug("noresult")
+                            logdebug("noresult")
                             finished = False
                              
                     if error:
-                        logging.warning("Internal error, child has error in OnAllChildSuccess: %s" % error)
+                        logwarning("Internal error, child has error in OnAllChildSuccess: %s" % error)
                         parentfuture.set_failure(error)
                     elif finished:
-                        logging.debug("result: %s" % result)
+                        logdebug("result: %s" % result)
                         parentfuture.set_success(result)
                     else:
-                        logging.debug("child not finished in OnAllChildSuccess, skipping")
+                        logdebug("child not finished in OnAllChildSuccess, skipping")
                 else:
-                    logging.warning("Internal error, parent has no children in OnAllChildSuccess")
+                    logwarning("Internal error, parent has no children in OnAllChildSuccess")
                     parentfuture.set_failure(Exception("no children found"))
         
         for ix, ff in enumerate(flist):
             taskkwargs["futurename"] = "%s [%s]" % (futurenameprefix if futurenameprefix else "parallel", ix)
             future(ff, parentkey=futurekey, onallchildsuccessf = OnAllChildSuccess, weight=weight/len(flist) if weight else None, timeoutsec=timeoutsec, maxretries=maxretries, **taskkwargs)()
                  
-        logging.debug("Leave futureparallel.toplevel: %s" % futurekey)
+        logdebug("Leave futureparallel.toplevel: %s" % futurekey)
         raise FutureReadyForResult("parallel started")
  
     return toplevel
