@@ -435,7 +435,7 @@ def DefaultOnFailure(futurekey):
     futureobj = futurekey.get() if futurekey else None
     parentfutureobj = futureobj.GetParent() if futureobj else None 
     if parentfutureobj and not parentfutureobj.has_result():
-        if not parentfutureobj.initialised or not parentfutureobj.readyforresult:
+        if not parentfutureobj.initialised:# or not parentfutureobj.readyforresult:
             raise Exception("Parent not initialised, retry")
         try:
             futureobj.get_result()
