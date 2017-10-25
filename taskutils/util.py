@@ -61,17 +61,25 @@ def dumper(thing):
     
         def dodumpclosure(f, indent, foundf):
             if f.func_closure:
-                for item in [lcell.cell_contents for lcell in f.func_closure]:
-                    if isinstance(item, types.FunctionType):
-                        if f == item:
-                            printmsg("%s - Function in its own closure, stop traverse" % item, indent)
-                        elif item in foundf:
-                            printmsg("%s - Function in ancestor closure, stop traverse" % item, indent)
+                cells = [lcell for lcell in f.func_closure]
+                for cell in cells: #[lcell.cell_contents for lcell in f.func_closure]:
+                    try:
+                        item = cell.cell_contents
+                        if isinstance(item, types.FunctionType):
+                            if f == item:
+                                printmsg("%s - Function in its own closure, stop traverse" % item, indent)
+                            elif item in foundf:
+                                printmsg("%s - Function in ancestor closure, stop traverse" % item, indent)
+                            else:
+                                dodumpitem(item, indent, foundf)
                         else:
                             dodumpitem(item, indent, foundf)
-                    else:
-                        dodumpitem(item, indent, foundf)
+                    except ValueError, vex:
+                        printmsg(repr(vex), indent)
             else:
                 printmsg("null closure", indent)
-    
-        dodumpitem(thing, 0, [])
+ 
+        try:   
+            dodumpitem(thing, 0, [])
+        except Exception:
+            logexception("dumper failed")
