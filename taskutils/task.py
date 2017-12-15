@@ -7,8 +7,24 @@ from google.appengine.ext import webapp
 import functools
 from taskutils.util import logdebug, logwarning, logexception, dumper, get_dump
 
-_DEFAULT_WEBAPP_URL = "/_ah/task/(.*)"
-_DEFAULT_ENQUEUE_URL = "/_ah/task/%s"
+TASKUTILS_TASKROUTE = "/_ah/task"
+
+def set_taskroute(value):
+    global TASKUTILS_TASKROUTE
+    TASKUTILS_TASKROUTE = value
+
+def get_taskroute():
+    global TASKUTILS_TASKROUTE
+    return TASKUTILS_TASKROUTE
+
+def get_webapp_url():
+    return "%s/(.*)" % get_taskroute()
+
+def get_enqueue_url(suffix):
+    return "%s/%s" % (get_taskroute(), suffix)
+
+# _DEFAULT_WEBAPP_URL = "/_ah/task/(.*)"
+# _DEFAULT_ENQUEUE_URL = "/_ah/task/%s"
 
 _TASKQUEUE_HEADERS = {"Content-Type": "application/octet-stream"}
 
@@ -88,7 +104,7 @@ def task(f=None, **taskkwargs):
 
     taskkwargscopy["headers"] = dict(_TASKQUEUE_HEADERS)
 
-    url = _DEFAULT_ENQUEUE_URL % logname
+    url = get_enqueue_url(logname)# _DEFAULT_ENQUEUE_URL % logname
     
     taskkwargscopy["url"] = url.lower()
     
@@ -175,8 +191,10 @@ class TaskHandler2(webapp2.RequestHandler):
         _launch_task(self.request.body, name, self.request.headers)
 
 def addrouteforwebapp(routes):
-    routes.append((_DEFAULT_WEBAPP_URL, TaskHandler))
+    routes.append((get_webapp_url(), TaskHandler))
+#     routes.append((_DEFAULT_WEBAPP_URL, TaskHandler))
 
 def addrouteforwebapp2(routes):
-    routes.append((_DEFAULT_WEBAPP_URL, TaskHandler2))
+    routes.append((get_webapp_url(), TaskHandler2))
+#     routes.append((_DEFAULT_WEBAPP_URL, TaskHandler2))
     

@@ -4,8 +4,9 @@ TASKUTILS_LOGGING = False
 TASKUTILS_DUMP = False
 
 import taskutils.task as taskpy
-from taskutils.task import task, addrouteforwebapp, addrouteforwebapp2
+from taskutils.task import task, addrouteforwebapp, addrouteforwebapp2, get_taskroute, set_taskroute
 from taskutils.flaskutil import setuptasksforflask
+from flask import Flask
 
 def set_logging(value):
     global TASKUTILS_LOGGING
@@ -22,8 +23,6 @@ def set_dump(value):
 def get_dump():
     global TASKUTILS_DUMP
     return TASKUTILS_DUMP
-    
-from flask import Flask
 
 app = Flask(__name__)
 
