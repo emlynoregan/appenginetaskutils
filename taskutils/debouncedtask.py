@@ -7,7 +7,7 @@ Created on 26Jul.,2017
 from google.appengine.api import memcache
 from datetime import datetime, timedelta
 import hashlib
-import task
+from task import task
 import functools
 from taskutils.flash import make_flash
 from taskutils.util import logdebug
