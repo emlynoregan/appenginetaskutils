@@ -366,11 +366,13 @@ class _Future(ndb.model.Model):
             taskkwargs = self.get_taskkwargs()
             
             @task(**taskkwargs)
-            def cancelchild(child):
-                child.cancel()
+            def cancelchild(childkey):
+                child2 = childkey.get()
+                if child2:
+                    child2.cancel()
                 
             for child in children:
-                cancelchild(child)
+                cancelchild(child.key)
 
         self.set_failure(FutureCancelled("cancelled by caller"))
 
@@ -664,9 +666,9 @@ def future(f=None, parentkey=None,
                 
                 
                 logdebug("inner, futurekey=%s" % futurekey)
-                futureobj = futurekey.get()
-                if futureobj:
-                    futureobj.set_weight(weight)# if weight >= 1 else 1)
+                futureobj2 = futurekey.get()
+                if futureobj2:
+                    futureobj2.set_weight(weight)# if weight >= 1 else 1)
                 else:
                     raise Exception("Future not ready yet")
     
@@ -675,26 +677,26 @@ def future(f=None, parentkey=None,
                     result = f(futurekey, *args, **kwargs)
     
                 except FutureReadyForResult:
-                    futureobj = futurekey.get()
-                    if futureobj:
-                        futureobj.set_readyforesult()
+                    futureobj3 = futurekey.get()
+                    if futureobj3:
+                        futureobj3.set_readyforesult()
     
                 except FutureNotReadyForResult:
-                    futureobj = futurekey.get()
-                    if futureobj:
-                        futureobj.set_initialised()
+                    futureobj4 = futurekey.get()
+                    if futureobj4:
+                        futureobj4.set_initialised()
                 
                 except PermanentTaskFailure, ptf:
                     try:
-                        futureobj = futurekey.get()
-                        if futureobj:
-                            futureobj.set_failure(ptf)
+                        futureobj5 = futurekey.get()
+                        if futureobj5:
+                            futureobj5.set_failure(ptf)
                     finally:
                         raise ptf
                 else:
-                    futureobj = futurekey.get()
-                    if futureobj:
-                        futureobj.set_success_and_readyforesult(result)
+                    futureobj6 = futurekey.get()
+                    if futureobj6:
+                        futureobj6.set_success_and_readyforesult(result)
     
             try:
                 # run the wrapper task, and if it fails due to a name clash just skip it (it was already kicked off by an earlier

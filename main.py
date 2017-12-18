@@ -1,14 +1,16 @@
 import logging
 
-from flask import Flask
-from taskutils import setuptasksforflask, set_logging, set_dump
+import flask
+from taskutils import setuptasksforflask, set_logging, set_dump, set_taskroute #, get_taskroute
+# from taskutils.task import _launch_task
 from handlers.switchboard import get_switchboard
 from handlers.report import get_report
 
 set_logging(True)
 set_dump(True)
+set_taskroute("/customtask")
 
-app = Flask(__name__)
+app = flask.Flask(__name__)
 
 setuptasksforflask(app)
 

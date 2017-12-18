@@ -6,9 +6,9 @@ automatic_scaling:
   
 handlers:
 
-- url: /_ah/task/.*
-  script: taskutils.app
-  login: admin
+# - url: /customtask/.*
+#   script: taskutils.app
+#   login: admin
   
 - url: /.*
   script: main.app
