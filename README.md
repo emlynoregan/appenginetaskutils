@@ -1,3 +1,7 @@
+# THIS LIBRARY IS DEPRECATED
+If you're not already using it, don't jump in. Instead, go use the Infinite Machine family of packages, which contain everything here and more:
+[Infinite Machine Library of Packages for Python App Engine](https://medium.com/the-infinite-machine/new-infinite-machine-libraries-for-python-app-engine-2e6d180a14ee)
+
 # appenginetaskutils
 This is the repo for the appengine task utils library. It generates the appenginetaskutils package 
 
