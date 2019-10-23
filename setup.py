@@ -15,7 +15,7 @@ dist = setup(
     url='https://github.com/emlynoregan/appenginetaskutils',
     license='LICENSE.txt',
     packages=['taskutils'],
-    install_requires=['cloudpickle', 'GoogleAppEngineCloudStorageClient', 'google-cloud-storage', 'Werkzeug==0.12.2'],
+    install_requires=['cloudpickle', 'GoogleAppEngineCloudStorageClient', 'google-cloud-storage', 'Werkzeug==0.15.3'],
     long_description=open('README.md').read(),
     classifiers=[
         'Development Status :: 3 - Alpha',
